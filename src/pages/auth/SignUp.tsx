@@ -2,8 +2,10 @@
 import React from "react";
 import { useForm } from "react-hook-form";
 import { FiMail, FiLock, FiUser } from "react-icons/fi";
-import { FcGoogle } from "react-icons/fc";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useRegisterMutation } from "../../services/userApi";
+import GoogleButton from "./GoogleButton";
+import { toast } from "react-toastify";
 
 type SignUpFormValues = {
   fullName: string;
@@ -14,23 +16,35 @@ type SignUpFormValues = {
 };
 
 const SignUpPage: React.FC = () => {
+  const navigate = useNavigate();
+
+  const [registerUser, { isLoading }] = useRegisterMutation();
+
   const {
     register,
-    handleSubmit,
     watch,
+    handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<SignUpFormValues>();
 
-  const onSubmit = (data: SignUpFormValues) => {
-    // TODO: replace with your API call
-    console.log("Sign up data:", data);
-  };
-
-  const handleGoogleSignUp = () => {
-    console.log("Google sign up");
-  };
-
   const passwordValue = watch("password");
+
+  const onSubmit = async (data: SignUpFormValues) => {
+    try {
+      const res = await registerUser({
+        email: data.email,
+        password: data.password,
+        name: data.fullName,
+      }).unwrap();
+
+      localStorage.setItem("accessToken", res.tokens.access);
+      localStorage.setItem("refreshToken", res.tokens.refresh);
+
+      navigate("/dashboard");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Signup failed");
+    }
+  };
 
   return (
     <div className="relative bg-slate-950 text-slate-50 pt-16  md:pt-28">
@@ -59,15 +73,10 @@ const SignUpPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Google button */}
-          <button
-            type="button"
-            onClick={handleGoogleSignUp}
-            className="mb-5 flex w-full items-center justify-center gap-3 rounded-xl border border-slate-600/80 bg-slate-900/80 py-2.5 text-sm font-medium shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-400/60 hover:bg-slate-800/90 hover:shadow-[0_12px_40px_rgba(15,23,42,0.75)]"
-          >
-            <FcGoogle className="text-xl" />
-            <span>Sign up with Google</span>
-          </button>
+          {/* Google button (your component) */}
+          <div className="mb-5">
+            <GoogleButton onSuccess={() => navigate("/dashboard")} />
+          </div>
 
           {/* Divider */}
           <div className="mb-5 flex items-center gap-3">
@@ -222,10 +231,10 @@ const SignUpPage: React.FC = () => {
             {/* Submit */}
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLoading}
               className="mt-1 w-full rounded-xl bg-emerald-400 text-sm font-semibold text-slate-950 py-2.5 shadow-[0_0_30px_rgba(16,185,129,0.7)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-emerald-300 hover:shadow-[0_18px_50px_rgba(16,185,129,0.65)] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? "Creating account..." : "Create Account"}
+              {isSubmitting || isLoading ? "Creating account..." : "Create Account"}
             </button>
           </form>
         </div>

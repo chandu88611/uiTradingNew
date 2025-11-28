@@ -14,6 +14,7 @@ const dashboard = lazy(() => import("./pages/dashboard/MyAccounts"));
 
 // USER PAGES
 const UserProfile = lazy(() => import("./pages/user/UserProfile"));
+const StrategyConfigure = lazy(() => import("./pages/user/StrategyConfigure"));
 
 // USER BROKER FLOW
 const UserBrokers = lazy(() => import("./pages/user/Dashboard"));
@@ -52,7 +53,11 @@ const FanoutSettings = lazy(() => import("./pages/admin/copy-trading/FanoutSetti
 const LiveTradingPage = lazy(() => import("./pages/admin/copy-trading/LiveTrading"));
 const CopyTradingStatus = lazy(() => import("./pages/admin/copy-trading/CopyTradingStatus"));
 const Subscriptions = lazy(() => import("./pages/admin/subscriptions/BillingSubscriptionPage"));
+
 const BillingDashboard = lazy(() => import("./pages/admin/dashboard/BillingDashboard"));
+// COPY TRADING
+const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
+// const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading"));
 
 // ------------------------
 // PUBLIC ROUTES
@@ -68,6 +73,7 @@ export const publicRoutes: AppRoute[] = [
 
   // user
   { path: "/profile", element: UserProfile },
+  { path: "/copy-trading", element: CopyTrading },
 
   // user broker flow
   { path: "/user/brokers", element: UserBrokers },
@@ -79,6 +85,7 @@ export const publicRoutes: AppRoute[] = [
   { path: "/user/settings", element: RiskSettingsPage },
   { path: "/user/smart-positioning", element: SmartPositionSizingPage },
   { path: "/user/conditions", element: Conditions },
+  { path: "/user/use-strategy", element: StrategyConfigure },
 
   // { path: "/user/logs/webhooks", element: WebhookLogs },
 

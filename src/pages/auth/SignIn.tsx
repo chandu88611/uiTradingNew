@@ -2,8 +2,10 @@
 import React from "react";
 import { useForm } from "react-hook-form";
 import { FiMail, FiLock } from "react-icons/fi";
-import { FcGoogle } from "react-icons/fc";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useLoginMutation } from "../../services/userApi";
+import GoogleButton from "./GoogleButton";
+import { toast } from "react-toastify";
 
 type SignInFormValues = {
   email: string;
@@ -12,22 +14,34 @@ type SignInFormValues = {
 };
 
 const SignInPage: React.FC = () => {
+  const navigate = useNavigate();
+
+  const [login, { isLoading: isLoginLoading }] = useLoginMutation();
+
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<SignInFormValues>();
 
-  const onSubmit = (data: SignInFormValues) => {
-    console.log("Sign in data:", data);
-  };
+  const onSubmit = async (data: SignInFormValues) => {
+    try {
+      const res = await login({
+        email: data.email,
+        password: data.password,
+      }).unwrap();
 
-  const handleGoogleSignIn = () => {
-    console.log("Google sign in");
+      localStorage.setItem("accessToken", res.tokens.access);
+      localStorage.setItem("refreshToken", res.tokens.refresh);
+
+      navigate("/dashboard");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Login failed");
+    }
   };
 
   return (
-    <div className="relative bg-slate-950 text-slate-50 pt-16  md:pt-28">
+    <div className="relative bg-slate-950 text-slate-50 pt-16 md:pt-28">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(129,140,248,0.25),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(16,185,129,0.18),_transparent_55%)]" />
 
       <div className="relative mx-auto flex min-h-[calc(100vh-140px)] max-w-5xl items-center justify-center px-4 py-10">
@@ -53,15 +67,10 @@ const SignInPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Google button */}
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            className="mb-5 flex w-full items-center justify-center gap-3 rounded-xl border border-slate-600/80 bg-slate-900/80 py-2.5 text-sm font-medium shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-400/60 hover:bg-slate-800/90 hover:shadow-[0_12px_40px_rgba(15,23,42,0.75)]"
-          >
-            <FcGoogle className="text-xl" />
-            <span>Continue with Google</span>
-          </button>
+          {/* Google button (your component) */}
+          <div className="mb-5">
+            <GoogleButton onSuccess={() => navigate("/dashboard")} />
+          </div>
 
           {/* Divider */}
           <div className="mb-5 flex items-center gap-3">
@@ -155,10 +164,10 @@ const SignInPage: React.FC = () => {
             {/* Submit */}
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isLoginLoading}
               className="mt-2 w-full rounded-xl bg-emerald-400 py-2.5 text-sm font-semibold text-slate-950 shadow-[0_0_30px_rgba(16,185,129,0.7)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-emerald-300 hover:shadow-[0_18px_50px_rgba(16,185,129,0.65)] disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {isSubmitting ? "Signing in..." : "Sign In"}
+              {isSubmitting || isLoginLoading ? "Signing in..." : "Sign In"}
             </button>
           </form>
         </div>

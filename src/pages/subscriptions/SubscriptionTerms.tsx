@@ -1,23 +1,32 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
-import { FileText, ShieldCheck, AlertTriangle, CheckCircle, ArrowRight } from "lucide-react";
+import {
+  FileText,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle,
+  ArrowRight,
+} from "lucide-react";
+import SubscriptionStepper from "./SubscriptionStepper";
 
 const TermsPage: React.FC = () => {
   const [accepted, setAccepted] = useState(false);
 
   const handleAccept = () => {
-    window.location.href = "/subscriptions/success";
+    if (!accepted) return;
+    // No API for now – just move to billing step
+    window.location.href = "/subscriptions/billing";
   };
 
   return (
-    <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100 p-6 flex justify-center">
+    <div className="min-h-screen px-6 pt-16 md:pt-28 bg-slate-950 text-slate-100 p-6 flex justify-center">
       <div className="max-w-3xl w-full">
+        <SubscriptionStepper currentStep={2} />
 
-        {/* HEADER */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-10"
+          className="text-center mb-8"
         >
           <h1 className="text-3xl font-semibold flex justify-center gap-3">
             <ShieldCheck className="text-emerald-400" size={32} />
@@ -28,50 +37,74 @@ const TermsPage: React.FC = () => {
           </p>
         </motion.div>
 
-        {/* TERMS CARD */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           className="bg-slate-900/60 border border-slate-800 rounded-2xl p-8 shadow-xl"
         >
-          {/* Icon */}
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-4">
             <FileText className="text-emerald-400" size={26} />
             <h2 className="text-xl font-semibold">Legal Agreement</h2>
           </div>
 
-          {/* Terms Content */}
-          <div className="space-y-5 text-sm leading-relaxed text-slate-300 h-[350px] overflow-y-auto pr-2">
-            <p>
-              By enabling Copy Trading & automated execution, you acknowledge that:
-            </p>
+          <div className="space-y-5 text-sm leading-relaxed text-slate-300 h-[320px] overflow-y-auto pr-2">
+            <p>By enabling Copy Trading & automated execution, you acknowledge that:</p>
 
             <ul className="list-disc list-inside space-y-3 text-slate-400">
-              <li>Your trades will be automatically executed based on our master account signals.</li>
-              <li>You understand that past performance does not guarantee future returns.</li>
-              <li>You authorize our system to place and manage orders on your linked broker account.</li>
-              <li>You will pay a **20% profit-sharing fee** based on realized monthly profits.</li>
+              <li>
+                Orders will be automatically executed on your linked broker account
+                based on our master strategy signals.
+              </li>
+              <li>
+                Past performance does not guarantee future returns. Copy trading
+                involves market risk and capital loss is possible.
+              </li>
+              <li>
+                You authorize this platform to place, modify and close orders
+                on your behalf using the broker tokens you provide.
+              </li>
+              <li>
+                A <strong>20% profit-sharing fee</strong> is charged only on net realized
+                profits at the end of each profitable month.
+              </li>
               <li>No fee is charged in a loss-making month.</li>
-              <li>You are fully responsible for your capital decisions and risk.</li>
-              <li>The platform does not offer any return guarantee or fixed income assurance.</li>
-              <li>Your broker login tokens are securely stored & encrypted.</li>
-              <li>The system may pause trading during high volatility for protection.</li>
-              <li>Withdrawals, deposits, or manual trades may affect automated logic.</li>
+              <li>
+                You remain fully responsible for deposits, withdrawals and any
+                manual trades you place on your broker account.
+              </li>
+              <li>
+                The platform does not offer guaranteed returns, fixed income, or
+                any kind of assured profit.
+              </li>
+              <li>
+                Broker access tokens are stored in encrypted form, and can be revoked
+                by you at any time.
+              </li>
+              <li>
+                Trading may be temporarily paused during extreme volatility,
+                connectivity issues or risk-protection events.
+              </li>
+              <li>
+                Changing your capital or interfering with positions may affect
+                risk and performance of the strategy.
+              </li>
             </ul>
 
             <div className="flex items-start gap-3 p-4 bg-yellow-500/10 border border-yellow-600/30 rounded-xl">
               <AlertTriangle className="text-yellow-400 mt-1" size={20} />
               <p className="text-yellow-300 text-xs">
-                Copy Trading involves market risks. Only trade with money you can afford to lose.
+                Copy Trading is a high-risk activity. Only trade with money you can
+                afford to lose. This is not investment advice or a guaranteed return
+                product.
               </p>
             </div>
 
-            <p className="text-slate-400 text-xs mt-4">
-              By proceeding, you legally agree to all the terms listed above.
+            <p className="text-slate-400 text-xs mt-2">
+              By proceeding, you confirm that you have read, understood and agree to all
+              the terms listed above.
             </p>
           </div>
 
-          {/* ACCEPT CHECKBOX */}
           <div className="mt-6 flex items-center gap-3">
             <input
               type="checkbox"
@@ -84,7 +117,6 @@ const TermsPage: React.FC = () => {
             </span>
           </div>
 
-          {/* CTA */}
           <button
             disabled={!accepted}
             onClick={handleAccept}
@@ -97,7 +129,7 @@ const TermsPage: React.FC = () => {
             `}
           >
             <CheckCircle size={18} />
-            Accept & Activate Copy Trading
+            Accept & Continue to Billing
             <ArrowRight size={18} />
           </button>
         </motion.div>

@@ -26,7 +26,7 @@ const Conditions = lazy(() => import("./pages/user/Conditions"));
 
 
 // USER SUBSCRIPTION PAGES
-const SubscriptionPlans = lazy(() => import("./pages/subscriptions/Subscriptions"));
+const Subscriptions= lazy(() => import("./pages/subscriptions/Subscriptions"));
 const SubscriptionTerms = lazy(() => import("./pages/subscriptions/SubscriptionTerms"));
 const SubscriptionBilling = lazy(() => import("./pages/subscriptions/SubscriptionBilling"));
 const SubscriptionSuccess = lazy(() => import("./pages/subscriptions/SubscriptionSuccess"));
@@ -36,7 +36,7 @@ const SubscriptionInvoices = lazy(() => import("./pages/subscriptions/Invoices")
 const SubscriptionInvoiceDetail = lazy(() => import("./pages/subscriptions/InvoiceDetailPage"));
 const RiskSettingsPage = lazy(() => import("./pages/user/RiskSettingsPage"));
 const SmartPositionSizingPage = lazy(() => import("./pages/user/SmartPositionSizingPage"));
-
+const SubscriptionPayment = lazy(() => import("./pages/subscriptions/SubscrptionPayment"));
 
 const TradeLogs = lazy(() => import("./pages/user/TradeHistoryPage"));
 const OrderLogs = lazy(() => import("./pages/user/LivePositionsPage"));
@@ -52,7 +52,7 @@ const StrategyLinking = lazy(() => import("./pages/admin/copy-trading/StrategyLi
 const FanoutSettings = lazy(() => import("./pages/admin/copy-trading/FanoutSettings"));
 const LiveTradingPage = lazy(() => import("./pages/admin/copy-trading/LiveTrading"));
 const CopyTradingStatus = lazy(() => import("./pages/admin/copy-trading/CopyTradingStatus"));
-const Subscriptions = lazy(() => import("./pages/admin/subscriptions/BillingSubscriptionPage"));
+// const Subscriptions = lazy(() => import("./pages/admin/subscriptions/BillingSubscriptionPage"));
 
 const BillingDashboard = lazy(() => import("./pages/admin/dashboard/BillingDashboard"));
 // COPY TRADING
@@ -104,7 +104,7 @@ export const publicRoutes: AppRoute[] = [
 
 
     // SUBSCRIPTIONS (USER)
-  { path: "/subscriptions", element: SubscriptionPlans },
+  { path: "/subscriptions", element: Subscriptions },
   { path: "/subscriptions/terms", element: SubscriptionTerms },
   { path: "/subscriptions/billing", element: SubscriptionBilling },
   { path: "/subscriptions/success", element: SubscriptionSuccess },
@@ -112,6 +112,7 @@ export const publicRoutes: AppRoute[] = [
   { path: "/subscriptions/settlements", element: SubscriptionSettlements },
   { path: "/subscriptions/invoices", element: SubscriptionInvoices },
   { path: "/subscriptions/invoices/:id", element: SubscriptionInvoiceDetail },
+  { path: "/subscriptions/payment", element: SubscriptionPayment },
 
 ];
 

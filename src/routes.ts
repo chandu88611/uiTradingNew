@@ -92,6 +92,7 @@ export const publicRoutes: AppRoute[] = [
   { path: "/copy-trading", element: CopyTrading },
   { path: "/subscriptions", element: Subscriptions },
 
+
 ];
 
 // ------------------------

@@ -10,6 +10,9 @@ import {
   MapPin,
   Building2,
   Hash,
+  Settings2,
+  Save,
+  CandlestickChart,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Modal from "../../components/Model";
@@ -21,6 +24,9 @@ import {
   useSaveBillingDetailsMutation,
   useChangePasswordMutation,
 } from "../../services/userApi";
+import PineConnectorSettings, { PineConnectorSettingsValue } from "./PineConnectorSettings";
+import IndianMarketSettings, { IndianMarketSettingsValue } from "./IndianMarketSettings";
+import CryptoDeltaSettings, { CryptoDeltaSettingsValue } from "./CryptoDeltaSettings";
 
 /** helpers */
 const inputBase =
@@ -39,8 +45,13 @@ function pickBilling(res: any) {
   return res?.data || null;
 }
 
+type TradeSettings = {
+  pineConnector?: PineConnectorSettingsValue;
+  indianMarket?: IndianMarketSettingsValue;
+  crypto?: CryptoDeltaSettingsValue;
+};
 export default function UserProfilePage() {
-  const [activeTab, setActiveTab] = useState<"profile" | "billing">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "billing"|"trading">("profile");
 
   // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -73,7 +84,16 @@ export default function UserProfilePage() {
     useChangePasswordMutation();
 
   const loading = meLoading || meFetching;
+const [tradingTab, setTradingTab] = useState<"pine" | "india" | "crypto">("pine");
 
+const tradeSettings: TradeSettings = user?.tradeSettings || {};
+
+const [localTradeSettings, setLocalTradeSettings] = useState<TradeSettings>(tradeSettings);
+
+// Keep in sync when user changes
+useEffect(() => {
+  setLocalTradeSettings(tradeSettings);
+}, [user?.tradeSettings]);
   return (
     <div className="min-h-screen bg-slate-950 text-white pt-16 md:pt-28 px-4 md:px-6 pb-10">
       <div className="mx-auto w-full max-w-5xl space-y-8">
@@ -99,6 +119,12 @@ export default function UserProfilePage() {
             icon={<CreditCard size={16} />}
             label="Billing"
           />
+           <TabButton
+    active={activeTab === "trading"}
+    onClick={() => setActiveTab("trading")}
+    icon={<CandlestickChart size={16} />}
+    label="Trading"
+  />
           <div className="flex-1" />
           <button
             onClick={() => setChangePassOpen(true)}
@@ -231,6 +257,75 @@ export default function UserProfilePage() {
                 </section>
               </>
             )}
+
+            {activeTab === "trading" && user && (
+  <section className={sectionBase}>
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <CandlestickChart size={18} />
+          Trading Settings
+        </h2>
+        <p className="text-xs text-slate-400 mt-1">
+          Configure Pine Connector, Indian Market & Crypto (Delta Exchange).
+        </p>
+      </div>
+
+      <button
+        onClick={async () => {
+          try {
+            await updateMe({ tradeSettings: localTradeSettings } as any).unwrap();
+            toast.success("Trading settings saved");
+            refetchMe();
+          } catch (err: any) {
+            toast.error(err?.data?.message || "Failed to save trading settings");
+          }
+        }}
+        className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+      >
+        <Save size={16} />
+        Save Trading
+      </button>
+    </div>
+
+    {/* SUB TABS */}
+    <div className="mt-6 flex flex-wrap gap-2">
+      <SubTab active={tradingTab === "pine"} onClick={() => setTradingTab("pine")} label="Pine Connector" />
+      <SubTab active={tradingTab === "india"} onClick={() => setTradingTab("india")} label="Indian Market" />
+      <SubTab active={tradingTab === "crypto"} onClick={() => setTradingTab("crypto")} label="Crypto (Delta)" />
+    </div>
+
+    <div className="mt-6">
+      {tradingTab === "pine" && (
+        <PineConnectorSettings
+          value={localTradeSettings.pineConnector}
+          onChange={(next) =>
+            setLocalTradeSettings((p) => ({ ...p, pineConnector: next }))
+          }
+        />
+      )}
+
+      {tradingTab === "india" && (
+        <IndianMarketSettings
+          value={localTradeSettings.indianMarket}
+          onChange={(next) =>
+            setLocalTradeSettings((p) => ({ ...p, indianMarket: next }))
+          }
+        />
+      )}
+
+      {tradingTab === "crypto" && (
+        <CryptoDeltaSettings
+          value={localTradeSettings.crypto}
+          onChange={(next) =>
+            setLocalTradeSettings((p) => ({ ...p, crypto: next }))
+          }
+        />
+      )}
+    </div>
+  </section>
+)}
+
           </>
         )}
       </div>
@@ -726,4 +821,28 @@ function normalizeEmptyToNull(obj: Record<string, any>) {
     out[k] = typeof v === "string" && v.trim() === "" ? null : v;
   });
   return out;
+}
+
+function SubTab({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
+        active
+          ? "bg-slate-100 text-slate-950 border-slate-100"
+          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+      }`}
+    >
+      <Settings2 size={16} />
+      {label}
+    </button>
+  );
 }

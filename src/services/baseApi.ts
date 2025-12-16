@@ -1,10 +1,11 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react'
+import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 
 export const baseApi = createApi({
-  reducerPath: 'api',
+  reducerPath: "api",
   baseQuery: fetchBaseQuery({
-    baseUrl:   'https://jsonplaceholder.typicode.com/'
+    baseUrl: import.meta.env.VITE_API_URL || "https://backend.globalalgotrading.com",
+    credentials: "include",
   }),
-  tagTypes: ['Todos','User'],
-  endpoints: () => ({})
-})
+  tagTypes: ["Todos", "User","UserSubscription","SubscriptionPlan"],
+  endpoints: () => ({}),
+});

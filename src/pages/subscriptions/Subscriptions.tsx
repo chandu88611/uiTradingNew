@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   CheckCircle,
@@ -9,504 +9,453 @@ import {
   Shield,
   TrendingUp,
   Brain,
-  Bot,
 } from "lucide-react";
 import SubscriptionStepper from "./SubscriptionStepper";
+import {
+  useListActivePlansQuery,
+  type SubscriptionPlan,
+} from "../../services/plansApi";
+
+import { useMeQuery } from "../../services/userApi";
+import AuthModal from "../auth/AuthModel";
 
 type Mode = "strategies" | "copy" | "both";
 
-type StrategyPlanId = "basic" | "elite" | "pro";
-
-interface StrategyPlan {
-  id: StrategyPlanId;
-  name: string;
-  price: string;
-  priceNote: string;
-  description: string;
-  features: string[];
-  highlight: boolean;
-  cta: string;
-}
-
 interface SelectionState {
-  type: Mode;      // "strategies" | "copy" | "both"
-  planId: string;  // e.g. "basic" | "copy-profit-share" | "bundle-elite-plus-copy"
+  type: Mode;
+  planId: number;
 }
 
-const strategyPlans: StrategyPlan[] = [
-  {
-    id: "basic",
-    name: "Basic Strategies",
-    price: "₹999",
-    priceNote: "/ month",
-    description:
-      "For traders who want simple intraday ideas on limited instruments.",
-    features: [
-      "Access to 1–2 core strategies",
-      "Nifty / BankNifty focus",
-      "Daily signal & level view",
-      "Basic performance stats",
-    ],
-    highlight: false,
-    cta: "Choose Basic",
-  },
-  {
-    id: "elite",
-    name: "Elite Strategies",
-    price: "₹1,999",
-    priceNote: "/ month",
-    description:
-      "More instruments + deeper stats for active traders using multiple setups.",
-    features: [
-      "All Basic strategies included",
-      "Indices + select stocks & commodities",
-      "Advanced stats (win-rate, drawdown)",
-      "Priority strategy updates",
-    ],
-    highlight: true,
-    cta: "Choose Elite",
-  },
-  {
-    id: "pro",
-    name: "Pro Strategies",
-    price: "₹2,999",
-    priceNote: "/ month",
-    description:
-      "Full library + detailed breakdown for traders who want everything unlocked.",
-    features: [
-      "All strategies unlocked",
-      "Multi-timeframe breakdown",
-      "Detailed backtest-style metrics",
-      "Priority support / community",
-    ],
-    highlight: false,
-    cta: "Choose Pro",
-  },
-];
+const inputBase =
+  "w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-lg text-slate-200 outline-none text-sm focus:border-emerald-500/60 focus:ring-2 focus:ring-emerald-500/10";
 
-const copyTradingPlan = {
-  id: "copy-profit-share",
-  name: "Copy Trading (Profit Sharing)",
-  price: "20%",
-  description:
-    "Hands-free automated execution from our master account to your broker account.",
-  features: [
-    "Automatic trade execution",
-    "Per-account risk controls",
-    "Live P/L & analytics",
-    "No fixed monthly fee",
-    "20% only on net profitable months",
-  ],
+const formatINR = (priceCents: number) => {
+  const rupees = Math.round(priceCents / 100);
+  return `₹${rupees.toLocaleString("en-IN")}`;
 };
 
-const bundlePlan = {
-  id: "bundle-elite-plus-copy",
-  name: "Elite + Copy Trading",
-  price: "₹1,999 + 20%",
-  description:
-    "View Elite strategies AND automatically mirror them in your linked accounts.",
-  features: [
-    "All Elite strategies unlocked",
-    "See logic + stats + live trades",
-    "Auto-execution to your broker accounts",
-    "Single dashboard for everything",
-  ],
+const intervalLabel = (i: any) => {
+  if (i === "monthly") return "/ month";
+  if (i === "yearly") return "/ year";
+  return "lifetime";
+};
+
+const getBadge = (p: SubscriptionPlan) => {
+  const tier = (p.metadata as any)?.tier;
+  if (tier === "elite") return "MOST POPULAR";
+  if (tier === "pro") return "RECOMMENDED";
+  if (p.interval === "lifetime") return "LIFETIME";
+  return null;
+};
+
+const pickHighlights = (p: SubscriptionPlan) => {
+  const ff = p.featureFlags || {};
+  const highlights: string[] = [];
+
+  if (ff.webhookAccess) highlights.push("Webhook access");
+  if (ff.tradeCopier) highlights.push("Trade copier");
+  if (ff.advancedRisk) highlights.push("Advanced risk controls");
+  if (ff.priorityExecution) highlights.push("Priority execution");
+  if (ff.vpsIncluded) highlights.push("VPS included");
+  if (ff.paperTrading) highlights.push("Paper trading");
+
+  highlights.push(`${p.maxActiveStrategies} strategies`);
+  highlights.push(`${p.maxConnectedAccounts} accounts`);
+
+  if (p.maxDailyTrades != null) highlights.push(`${p.maxDailyTrades} daily trades`);
+  if (p.maxLotPerTrade) highlights.push(`Max lot: ${p.maxLotPerTrade}`);
+
+  return highlights.slice(0, 6);
+};
+
+const sortByTier = (a: SubscriptionPlan, b: SubscriptionPlan) => {
+  const tierRank: Record<string, number> = {
+    starter: 1,
+    basic: 1,
+    standard: 2,
+    pro: 3,
+    premium: 4,
+    elite: 5,
+    lifetime: 6,
+  };
+  const ta = String((a.metadata as any)?.tier || "");
+  const tb = String((b.metadata as any)?.tier || "");
+  return (tierRank[ta] || 99) - (tierRank[tb] || 99);
 };
 
 const SubscriptionsPage: React.FC = () => {
   const [mode, setMode] = useState<Mode>("copy");
   const [selection, setSelection] = useState<SelectionState | null>(null);
+  const [search, setSearch] = useState("");
 
-  const isSelected = (type: Mode, id: string) =>
-    selection?.type === type && selection.planId === id;
+  // ✅ auth state
+  const { data: meRes } = useMeQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  } as any);
 
- const handleContinue = () => {
-  if (!selection) return;
+  const isAuthenticated = Boolean((meRes as any)?.data?.id);
 
-  const params = new URLSearchParams();
+  // ✅ modal
+  const [authOpen, setAuthOpen] = useState(false);
 
-  // mode = strategies | copy | both
-  params.set("mode", selection.type);
+  const { data, isLoading, isFetching } = useListActivePlansQuery(undefined);
 
-  // If strategies-only, send which tier (basic / elite / pro)
-  if (selection.type === "strategies") {
-    params.set("strategyTier", selection.planId); // basic | elite | pro
-  }
+  const allPlans: SubscriptionPlan[] = useMemo(() => {
+    const raw = (data as any)?.data;
+    if (Array.isArray(raw?.[0])) return raw[0] as SubscriptionPlan[];
+    if (Array.isArray(raw)) return raw as SubscriptionPlan[];
+    return [];
+  }, [data]);
 
-  // If both (bundle), for now we treat it as Elite + copy
-  if (selection.type === "both") {
-    params.set("strategyTier", "elite");
-  }
+  const loading = isLoading || isFetching;
 
-  // 🔥 IMPORTANT: For ALL paid flows go to Terms (agreement)
-  window.location.href = `/subscriptions/terms?${params.toString()}`;
-};
+  const filteredPlans = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allPlans;
+    return allPlans.filter((p) => {
+      const hay = `${p.name} ${p.planCode} ${p.description || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [allPlans, search]);
 
+  const apiPlans = useMemo(
+    () => filteredPlans.filter((p) => p.executionFlow === "API").sort(sortByTier),
+    [filteredPlans]
+  );
+
+  const pinePlans = useMemo(
+    () =>
+      filteredPlans.filter((p) => p.executionFlow === "PINE_CONNECTOR").sort(sortByTier),
+    [filteredPlans]
+  );
+
+  const goToTerms = (sel: SelectionState) => {
+    const params = new URLSearchParams();
+    params.set("mode", sel.type);
+    params.set("planId", String(sel.planId));
+    window.location.href = `/subscriptions/terms?${params.toString()}`;
+  };
+
+  // ✅ NEW: only select plan on click
+  const handleSelectPlan = (sel: SelectionState) => {
+    setSelection(sel);
+  };
+
+  // ✅ NEW: Continue button handles auth + proceed
+  const handleContinue = () => {
+    if (!selection) return;
+
+    if (isAuthenticated) {
+      goToTerms(selection);
+      return;
+    }
+
+    setAuthOpen(true);
+  };
+
+  // ✅ after login/register success
+  const onAuthed = () => {
+    if (selection) goToTerms(selection);
+  };
+
+  const renderCard = (p: SubscriptionPlan, type: Mode) => {
+    const selected = selection?.type === type && selection?.planId === p.id;
+    const badge = getBadge(p);
+    const highlights = pickHighlights(p);
+
+    return (
+      <motion.div
+        key={p.id}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        whileHover={{ y: -2 }}
+        onClick={() => handleSelectPlan({ type, planId: p.id })}
+        className={`relative rounded-2xl border p-6 bg-slate-900/60 cursor-pointer select-none
+          ${
+            selected
+              ? "ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950 border-emerald-500"
+              : "border-slate-800 hover:border-slate-700"
+          }`}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleSelectPlan({ type, planId: p.id });
+          }
+        }}
+      >
+        {badge && (
+          <div className="absolute -top-3 left-4 px-3 py-1 text-[10px] rounded-xl bg-emerald-500 text-slate-900 font-bold">
+            {badge}
+          </div>
+        )}
+
+        <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
+          {badge === "MOST POPULAR" && <Star className="text-emerald-400" size={18} />}
+          {p.name}
+        </h3>
+
+        <p className="text-slate-400 text-xs mb-4">{p.description || "—"}</p>
+
+        <div className="text-2xl font-bold text-emerald-400">
+          {formatINR(p.priceCents)}
+          <span className="text-xs font-normal text-slate-400 ml-1">
+            {intervalLabel(p.interval as any)}
+          </span>
+        </div>
+
+        <ul className="mt-4 space-y-1.5 text-xs">
+          {highlights.map((f, idx) => (
+            <li key={idx} className="flex items-center gap-2">
+              <CheckCircle size={14} className="text-emerald-400" />
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* ✅ only selection indicator */}
+        {selected && (
+          <div className="mt-5">
+            <span className="inline-flex rounded-full bg-emerald-500/15 text-emerald-400 px-3 py-1 border border-emerald-500/30 text-xs">
+              Selected
+            </span>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
 
   return (
-    <div className="min-h-screen px-6 pt-16 md:pt-28 bg-slate-950 text-slate-100 pb-16">
-      <div className="max-w-6xl mx-auto">
-        {/* HEADER */}
-        <div className="text-center mb-6">
-          <motion.h1
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-3xl md:text-4xl font-semibold tracking-tight"
-          >
-            How do you want to{" "}
-            <span className="text-emerald-400">use the platform?</span>
-          </motion.h1>
+    <>
+      {/* ✅ Auth Modal */}
+      <AuthModal
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        onAuthed={onAuthed}
+        defaultTab="login"
+      />
 
-          <p className="text-slate-400 mt-2 max-w-2xl mx-auto text-sm md:text-base">
-            You can just view strategies, just use hands-free copy trading, or
-            combine both. Step 1: select what you need.
-          </p>
-        </div>
-
-        {/* STEPPER */}
-        <div className="max-w-3xl mx-auto mb-8">
-          <SubscriptionStepper currentStep={1} />
-        </div>
-
-        {/* MODE SWITCH */}
-        <div className="max-w-3xl mx-auto mb-10 bg-slate-900/70 border border-slate-800 rounded-2xl p-4">
-          <p className="text-xs font-semibold text-slate-400 uppercase mb-3">
-            Step 1 · Select your product
-          </p>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => {
-                setMode("strategies");
-                setSelection(null);
-              }}
-              className={`px-4 py-2 rounded-full text-xs font-medium border transition
-                ${
-                  mode === "strategies"
-                    ? "bg-emerald-500 text-slate-900 border-emerald-500"
-                    : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-                }`}
-            >
-              I want only strategies (signals)
-            </button>
-
-            <button
-              onClick={() => {
-                setMode("copy");
-                setSelection(null);
-              }}
-              className={`px-4 py-2 rounded-full text-xs font-medium border transition
-                ${
-                  mode === "copy"
-                    ? "bg-emerald-500 text-slate-900 border-emerald-500"
-                    : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-                }`}
-            >
-              I want only copy trading
-            </button>
-
-            <button
-              onClick={() => {
-                setMode("both");
-                setSelection(null);
-              }}
-              className={`px-4 py-2 rounded-full text-xs font-medium border transition
-                ${
-                  mode === "both"
-                    ? "bg-emerald-500 text-slate-900 border-emerald-500"
-                    : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-                }`}
-            >
-              I want both (signals + auto)
-            </button>
-          </div>
-        </div>
-
-        {/* ICON ROW */}
-        <div className="flex flex-wrap justify-center gap-10 mb-10 opacity-80">
-          <div className="flex flex-col items-center text-slate-400 text-xs">
-            <TrendingUp size={32} />
-            <span className="mt-1">Smart Execution</span>
-          </div>
-          <div className="flex flex-col items-center text-slate-400 text-xs">
-            <Zap size={32} />
-            <span className="mt-1">Fast Signals</span>
-          </div>
-          <div className="flex flex-col items-center text-slate-400 text-xs">
-            <BarChart3 size={32} />
-            <span className="mt-1">Live Analytics</span>
-          </div>
-          <div className="flex flex-col items-center text-slate-400 text-xs">
-            <Shield size={32} />
-            <span className="mt-1">Risk Protection</span>
-          </div>
-        </div>
-
-        {/* CONTENT AREA BASED ON MODE */}
-        {mode === "strategies" && (
-          <>
-            <div className="text-center mb-4">
-              <p className="text-sm text-slate-300 font-medium">
-                Strategy access only – you see our ideas and trade wherever you want.
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-6">
-              {strategyPlans.map((plan) => {
-                const selected = isSelected("strategies", plan.id);
-                return (
-                  <motion.div
-                    key={plan.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    onClick={() =>
-                      setSelection({ type: "strategies", planId: plan.id })
-                    }
-                    className={`relative rounded-2xl border p-6 bg-slate-900/60 cursor-pointer ${
-                      plan.highlight
-                        ? "border-emerald-500 shadow-lg shadow-emerald-500/10"
-                        : "border-slate-800"
-                    } ${
-                      selected
-                        ? "ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950"
-                        : ""
-                    }`}
-                  >
-                    {plan.highlight && (
-                      <div className="absolute -top-3 left-4 px-3 py-1 text-[10px] rounded-xl bg-emerald-500 text-slate-900 font-bold">
-                        MOST POPULAR
-                      </div>
-                    )}
-
-                    <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
-                      {plan.highlight && (
-                        <Star className="text-emerald-400" size={18} />
-                      )}
-                      {plan.name}
-                    </h3>
-                    <p className="text-slate-400 text-xs mb-4">
-                      {plan.description}
-                    </p>
-
-                    <div className="text-2xl font-bold text-emerald-400">
-                      {plan.price}
-                      <span className="text-xs font-normal text-slate-400 ml-1">
-                        {plan.priceNote}
-                      </span>
-                    </div>
-
-                    <ul className="mt-4 space-y-1.5 text-xs">
-                      {plan.features.map((f, idx) => (
-                        <li key={idx} className="flex items-center gap-2">
-                          <CheckCircle
-                            size={14}
-                            className="text-emerald-400"
-                          />
-                          <span>{f}</span>
-                        </li>
-                      ))}
-                    </ul>
-
-                    <button
-                      type="button"
-                      className={`mt-6 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold ${
-                        selected
-                          ? "bg-emerald-500 text-slate-900"
-                          : "bg-slate-800 text-slate-100 hover:bg-slate-700"
-                      }`}
-                    >
-                      {selected ? "Selected" : plan.cta}
-                      <ArrowRight size={14} />
-                    </button>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        {mode === "copy" && (
-          <div className="max-w-3xl mx-auto">
-            <div className="text-center mb-4">
-              <p className="text-sm text-slate-300 font-medium">
-                Hands-free mode – you don’t need to think about strategy logic. We execute it for you.
-              </p>
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
+      <div className="min-h-screen px-6 pt-16 md:pt-28 bg-slate-950 text-slate-100 pb-28">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-6">
+            <motion.h1
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              onClick={() =>
-                setSelection({ type: "copy", planId: copyTradingPlan.id })
-              }
-              className={`relative rounded-2xl border p-8 bg-slate-900/70 cursor-pointer ${
-                isSelected("copy", copyTradingPlan.id)
-                  ? "border-emerald-500 shadow-xl shadow-emerald-500/10 ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950"
-                  : "border-emerald-500 shadow-xl shadow-emerald-500/10"
-              }`}
+              className="text-3xl md:text-4xl font-semibold tracking-tight"
             >
-              <div className="absolute -top-3 left-6 px-3 py-1 text-[11px] rounded-xl bg-emerald-500 text-slate-900 font-bold">
-                BEST FOR COMPLETE AUTOMATION
-              </div>
-
-              <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
-                <Bot className="text-emerald-400" size={20} />
-                {copyTradingPlan.name}
-              </h3>
-
-              <p className="text-slate-400 text-sm mb-4">
-                {copyTradingPlan.description}
-              </p>
-
-              <div className="text-4xl font-bold text-emerald-400 mb-4">
-                {copyTradingPlan.price}
-                <span className="text-sm text-slate-400 font-normal ml-1">
-                  of net profitable months
-                </span>
-              </div>
-
-              <ul className="mt-2 space-y-2 text-sm">
-                {copyTradingPlan.features.map((f, idx) => (
-                  <li key={idx} className="flex items-center gap-2">
-                    <CheckCircle size={16} className="text-emerald-400" />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <button
-                type="button"
-                className={`mt-8 w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold ${
-                  isSelected("copy", copyTradingPlan.id)
-                    ? "bg-emerald-500 text-slate-900"
-                    : "bg-emerald-600 text-slate-900 hover:bg-emerald-500"
-                }`}
-              >
-                {isSelected("copy", copyTradingPlan.id)
-                  ? "Selected – Continue"
-                  : "Select this plan"}
-                <ArrowRight size={16} />
-              </button>
-            </motion.div>
+              Choose your <span className="text-emerald-400">subscription</span>
+            </motion.h1>
+            <p className="text-slate-400 mt-2 max-w-2xl mx-auto text-sm md:text-base">
+              Select your plan → accept terms → billing → payment.
+            </p>
           </div>
-        )}
 
-        {mode === "both" && (
-          <div className="grid md:grid-cols-[1.4fr,1.1fr] gap-8 items-start">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              onClick={() =>
-                setSelection({ type: "both", planId: bundlePlan.id })
-              }
-              className={`relative rounded-2xl border p-8 bg-slate-900/70 cursor-pointer ${
-                isSelected("both", bundlePlan.id)
-                  ? "border-emerald-500 shadow-xl shadow-emerald-500/10 ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950"
-                  : "border-emerald-500 shadow-xl shadow-emerald-500/10"
-              }`}
-            >
-              <div className="absolute -top-3 left-6 px-3 py-1 text-[11px] rounded-xl bg-emerald-500 text-slate-900 font-bold">
-                STRATEGIES + COPY TRADING
-              </div>
+          <div className="max-w-3xl mx-auto mb-8">
+            <SubscriptionStepper currentStep={1} />
+          </div>
 
-              <h3 className="text-xl font-semibold mb-2 flex items-center gap-2">
-                <Brain className="text-emerald-400" size={20} />
-                {bundlePlan.name}
-              </h3>
-
-              <p className="text-slate-400 text-sm mb-4">
-                {bundlePlan.description}
+          <div className="max-w-3xl mx-auto mb-10 bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase mb-2">
+                Step 1 · Select your product
               </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    setMode("strategies");
+                    setSelection(null);
+                  }}
+                  className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
+                    mode === "strategies"
+                      ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                      : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  API Plans
+                </button>
 
-              <div className="text-2xl font-bold text-emerald-400 mb-2">
-                {bundlePlan.price}
-                <span className="text-xs text-slate-400 font-normal ml-1">
-                  (subscription + profit share)
-                </span>
+                <button
+                  onClick={() => {
+                    setMode("copy");
+                    setSelection(null);
+                  }}
+                  className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
+                    mode === "copy"
+                      ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                      : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  Pine Connector
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMode("both");
+                    setSelection(null);
+                  }}
+                  className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
+                    mode === "both"
+                      ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                      : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  Bundle
+                </button>
               </div>
+            </div>
 
-              <ul className="mt-3 space-y-2 text-sm">
-                {bundlePlan.features.map((f, idx) => (
-                  <li key={idx} className="flex items-center gap-2">
-                    <CheckCircle size={16} className="text-emerald-400" />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
+            <div>
+              <label className="text-xs text-slate-400">Search plans</label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={inputBase}
+                placeholder="Search by name / planCode"
+              />
+            </div>
 
-              <button
-                type="button"
-                className={`mt-8 w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold ${
-                  isSelected("both", bundlePlan.id)
-                    ? "bg-emerald-500 text-slate-900"
-                    : "bg-emerald-600 text-slate-900 hover:bg-emerald-500"
-                }`}
-              >
-                {isSelected("both", bundlePlan.id)
-                  ? "Selected – Continue"
-                  : "Get Elite + Copy"}
-                <ArrowRight size={16} />
-              </button>
-            </motion.div>
+            <div className="text-[11px] text-slate-500 flex justify-between">
+              <span>{loading ? "Loading plans…" : `Active plans: ${allPlans.length}`}</span>
+              {!loading && allPlans.length === 0 && (
+                <span className="text-red-400">No active plans found</span>
+              )}
+            </div>
+          </div>
 
-            <div className="space-y-4">
-              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 text-sm text-slate-300">
-                <p className="font-semibold mb-1">What you get in this bundle</p>
-                <ul className="list-disc list-inside text-xs text-slate-400 space-y-1">
-                  <li>Full Elite strategy access inside the platform.</li>
-                  <li>Option to copy selected strategies to your broker accounts.</li>
-                  <li>Clear P/L and profit-share breakdown every month.</li>
-                  <li>You can stop or pause copy trading any time.</li>
-                </ul>
-              </div>
+          <div className="flex flex-wrap justify-center gap-10 mb-10 opacity-80">
+            <div className="flex flex-col items-center text-slate-400 text-xs">
+              <TrendingUp size={32} />
+              <span className="mt-1">Smart Execution</span>
+            </div>
+            <div className="flex flex-col items-center text-slate-400 text-xs">
+              <Zap size={32} />
+              <span className="mt-1">Fast Signals</span>
+            </div>
+            <div className="flex flex-col items-center text-slate-400 text-xs">
+              <BarChart3 size={32} />
+              <span className="mt-1">Live Analytics</span>
+            </div>
+            <div className="flex flex-col items-center text-slate-400 text-xs">
+              <Shield size={32} />
+              <span className="mt-1">Risk Protection</span>
+            </div>
+          </div>
 
-              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-5 text-xs text-slate-400">
-                <p className="font-semibold text-slate-300 mb-1">
-                  What happens after this
+          {mode === "strategies" && (
+            <>
+              <div className="text-center mb-4">
+                <p className="text-sm text-slate-300 font-medium">
+                  API Plans – India/Crypto broker API execution
                 </p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Accept copy-trading / subscription agreement.</li>
-                  <li>Add billing / payout details.</li>
-                  <li>Complete activation of subscription.</li>
-                  <li>Connect broker & select which strategies to copy.</li>
-                </ol>
+              </div>
+
+              {loading ? (
+                <div className="grid md:grid-cols-3 gap-6">
+                  {[...Array(6)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-2xl border border-slate-800 p-6 bg-slate-900/60 animate-pulse"
+                    >
+                      <div className="h-5 w-40 bg-slate-800 rounded" />
+                      <div className="h-3 w-56 bg-slate-800 rounded mt-3" />
+                      <div className="h-10 w-32 bg-slate-800 rounded mt-5" />
+                      <div className="h-10 w-full bg-slate-800 rounded-xl mt-6" />
+                    </div>
+                  ))}
+                </div>
+              ) : apiPlans.length === 0 ? (
+                <div className="text-center text-slate-500 text-sm py-10">
+                  No API plans found.
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-3 gap-6">
+                  {apiPlans.map((p) => renderCard(p, "strategies"))}
+                </div>
+              )}
+            </>
+          )}
+
+          {mode === "copy" && (
+            <>
+              <div className="text-center mb-4">
+                <p className="text-sm text-slate-300 font-medium">
+                  Pine Connector – TradingView webhook → MT4/MT5
+                </p>
+              </div>
+
+              {loading ? (
+                <div className="grid md:grid-cols-2 gap-6">
+                  {[...Array(2)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-2xl border border-emerald-500/40 p-8 bg-slate-900/70 animate-pulse"
+                    >
+                      <div className="h-5 w-56 bg-slate-800 rounded" />
+                      <div className="h-3 w-72 bg-slate-800 rounded mt-3" />
+                      <div className="h-11 w-full bg-slate-800 rounded-xl mt-8" />
+                    </div>
+                  ))}
+                </div>
+              ) : pinePlans.length === 0 ? (
+                <div className="text-center text-slate-500 text-sm py-10">
+                  No Pine Connector plans found.
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-6">
+                  {pinePlans.map((p) => renderCard(p, "copy"))}
+                </div>
+              )}
+            </>
+          )}
+
+          {mode === "both" && (
+            <div className="max-w-3xl mx-auto">
+              <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
+                <div className="flex items-center gap-3">
+                  <Brain className="text-emerald-400" size={22} />
+                  <p className="text-lg font-semibold text-slate-100">
+                    Bundle plans not added yet
+                  </p>
+                </div>
+                <p className="text-sm text-slate-400 mt-2">
+                  When you insert bundle plans in DB, we’ll auto-show them here.
+                </p>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* CONTINUE BUTTON */}
-        <div className="mt-10 max-w-3xl mx-auto flex flex-col items-center gap-3">
-          <button
-            disabled={!selection}
-            onClick={handleContinue}
-            className={`w-full md:w-80 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition
-              ${
+        {/* ✅ ONE Continue button after selection */}
+        <div className="fixed inset-x-0 bottom-0 border-t border-slate-800 bg-slate-950/90 backdrop-blur">
+          <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between gap-4">
+            <div className="text-xs text-slate-400">
+              {selection ? (
+                <span>
+                  Selected plan ID:{" "}
+                  <span className="text-slate-100 font-semibold">{selection.planId}</span>{" "}
+                  • Next: Terms → Billing → Payment
+                </span>
+              ) : (
+                <span>Select any plan to continue</span>
+              )}
+            </div>
+
+            <button
+              disabled={!selection}
+              onClick={handleContinue}
+              className={`inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition ${
                 selection
-                  ? "bg-emerald-500 text-slate-900 hover:bg-emerald-400"
+                  ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
               }`}
-          >
-            Continue
-            <ArrowRight size={18} />
-          </button>
-
-          <p className="text-[11px] text-slate-500 text-center">
-            You can change plans later from the subscription dashboard.
-          </p>
-
-          <p className="text-[11px] text-slate-500">
-            Not ready yet?{" "}
-            <button
-              onClick={() => (window.location.href = "/dashboard")}
-              className="underline underline-offset-4 hover:text-emerald-400"
             >
-              Continue with Free monitoring only
+              Continue <ArrowRight size={18} />
             </button>
-          </p>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

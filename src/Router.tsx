@@ -1,21 +1,19 @@
-import { Suspense, useEffect } from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
-import { publicRoutes } from "./routes";
- 
-import { useDispatch, useSelector } from "react-redux"; 
-import { toast } from "react-toastify";
+// Router.tsx
+import { Suspense } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { publicRoutes, userProtectedRoutes } from "./routes";
+
 import PublicLayout from "./layouts/PublicLayout";
- const Skeleton = () => <div>Loading…</div>
+import RequireUserAuth from "./RequireAuth";
+
+const Skeleton = () => <div>Loading…</div>;
 
 const Router = () => {
-  
-const navigate=useNavigate()
-const dispatch=useDispatch()
- 
   return (
     <Routes>
-      {/* Public Routes */}
-      <Route element={<PublicLayout />}>
+      {/* Everything under "/" uses PublicLayout */}
+      <Route path="/" element={<PublicLayout />}>
+        {/* "/" -> Home (because publicRoutes has path: "" → index) */}
         {publicRoutes.map((route, i) => (
           <Route
             key={`public-${i}`}
@@ -27,16 +25,12 @@ const dispatch=useDispatch()
             }
           />
         ))}
-      </Route>
 
-    
-
-      {/* Admin Routes */}
-      {/* {userRole?.user?.role === "admin" && (
-        <Route path="/admin" element={<AdminLayout />}>
-          {adminRoutes.map((route, i) => (
+        {/* Protected routes under "/" */}
+        <Route element={<RequireUserAuth />}>
+          {userProtectedRoutes.map((route, i) => (
             <Route
-              key={`admin-${i}`}
+              key={`user-${i}`}
               path={route.path}
               element={
                 <Suspense fallback={<Skeleton />}>
@@ -46,9 +40,10 @@ const dispatch=useDispatch()
             />
           ))}
         </Route>
-      )} */}
+      </Route>
 
- 
+      {/* 404 → go to home ("/") */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 };

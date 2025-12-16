@@ -13,8 +13,8 @@ const GoogleButton = ({ onSuccess }: { onSuccess: () => void }) => {
         try {
           const res = await googleLogin({ id_token: response.credential }).unwrap();
 
-          localStorage.setItem("accessToken", res.tokens.access);
-          localStorage.setItem("refreshToken", res.tokens.refresh);
+          // localStorage.setItem("accessToken", res.tokens.access);
+          // localStorage.setItem("refreshToken", res.tokens.refresh);
 
           onSuccess();
         } catch (e) {

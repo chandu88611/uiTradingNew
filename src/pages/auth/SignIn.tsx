@@ -6,6 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useLoginMutation } from "../../services/userApi";
 import GoogleButton from "./GoogleButton";
 import { toast } from "react-toastify";
+import { consumeAuthReturnTo } from "../../utils/authReturn";
 
 type SignInFormValues = {
   email: string;
@@ -13,9 +14,14 @@ type SignInFormValues = {
   remember: boolean;
 };
 
-const SignInPage: React.FC = () => {
-  const navigate = useNavigate();
+type Props = {
+  mode?: "page" | "modal";
+  onAuthed?: () => void;
+  onSwitchToSignup?: () => void;
+};
 
+const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup }) => {
+  const navigate = useNavigate();
   const [login, { isLoading: isLoginLoading }] = useLoginMutation();
 
   const {
@@ -24,24 +30,22 @@ const SignInPage: React.FC = () => {
     formState: { errors, isSubmitting },
   } = useForm<SignInFormValues>();
 
+  const afterAuth = () => {
+    if (onAuthed) return onAuthed();
+    navigate(consumeAuthReturnTo("/profile"));
+  };
+
   const onSubmit = async (data: SignInFormValues) => {
     try {
-      const res = await login({
-        email: data.email,
-        password: data.password,
-      }).unwrap();
-
-      localStorage.setItem("accessToken", res.tokens.access);
-      localStorage.setItem("refreshToken", res.tokens.refresh);
-
-      navigate("/dashboard");
+      await login({ email: data.email, password: data.password }).unwrap();
+      afterAuth();
     } catch (err: any) {
       toast.error(err?.data?.message || "Login failed");
     }
   };
 
   return (
-    <div className="relative bg-slate-950 text-slate-50 pt-16 md:pt-28">
+    <div className={`relative bg-slate-950 text-slate-50 ${mode === "page" ? "pt-16 md:pt-28" : "pt-6"}`}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(129,140,248,0.25),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(16,185,129,0.18),_transparent_55%)]" />
 
       <div className="relative mx-auto flex min-h-[calc(100vh-140px)] max-w-5xl items-center justify-center px-4 py-10">
@@ -56,38 +60,41 @@ const SignInPage: React.FC = () => {
                 TradebroX portal
               </span>
             </h2>
+
             <p className="mt-1 text-sm text-slate-400">
               Don&apos;t have an account?{" "}
-              <Link
-                to="/auth/signup"
-                className="font-medium text-emerald-400 hover:text-emerald-300"
-              >
-                Create one
-              </Link>
+              {mode === "modal" ? (
+                <button
+                  type="button"
+                  onClick={onSwitchToSignup}
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                  Create one
+                </button>
+              ) : (
+                <Link
+                  to="/auth/signup"
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                  Create one
+                </Link>
+              )}
             </p>
           </div>
 
-          {/* Google button (your component) */}
           <div className="mb-5">
-            <GoogleButton onSuccess={() => navigate("/dashboard")} />
+            <GoogleButton onSuccess={afterAuth} />
           </div>
 
-          {/* Divider */}
           <div className="mb-5 flex items-center gap-3">
             <div className="h-px flex-1 bg-slate-700/70" />
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              or
-            </span>
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">or</span>
             <div className="h-px flex-1 bg-slate-700/70" />
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {/* Email */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">
-                Email address
-              </label>
+              <label className="text-xs font-medium text-slate-300">Email address</label>
               <div className="relative">
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
                   <FiMail />
@@ -99,25 +106,15 @@ const SignInPage: React.FC = () => {
                   placeholder="you@example.com"
                   {...register("email", {
                     required: "Email is required",
-                    pattern: {
-                      value: /\S+@\S+\.\S+/,
-                      message: "Enter a valid email",
-                    },
+                    pattern: { value: /\S+@\S+\.\S+/, message: "Enter a valid email" },
                   })}
                 />
               </div>
-              {errors.email && (
-                <p className="mt-0.5 text-xs text-rose-400">
-                  {errors.email.message}
-                </p>
-              )}
+              {errors.email && <p className="mt-0.5 text-xs text-rose-400">{errors.email.message}</p>}
             </div>
 
-            {/* Password */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">
-                Password
-              </label>
+              <label className="text-xs font-medium text-slate-300">Password</label>
               <div className="relative">
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
                   <FiLock />
@@ -129,21 +126,13 @@ const SignInPage: React.FC = () => {
                   placeholder="Enter your password"
                   {...register("password", {
                     required: "Password is required",
-                    minLength: {
-                      value: 6,
-                      message: "At least 6 characters",
-                    },
+                    minLength: { value: 6, message: "At least 6 characters" },
                   })}
                 />
               </div>
-              {errors.password && (
-                <p className="mt-0.5 text-xs text-rose-400">
-                  {errors.password.message}
-                </p>
-              )}
+              {errors.password && <p className="mt-0.5 text-xs text-rose-400">{errors.password.message}</p>}
             </div>
 
-            {/* Remember + forgot */}
             <div className="flex items-center justify-between text-xs text-slate-400">
               <label className="flex cursor-pointer select-none items-center gap-2">
                 <input
@@ -153,15 +142,25 @@ const SignInPage: React.FC = () => {
                 />
                 <span>Keep me signed in on this device</span>
               </label>
-              <Link
-                to="/auth/forgot-password"
-                className="font-medium text-emerald-400 hover:text-emerald-300"
-              >
-                Forgot password?
-              </Link>
+
+              {mode === "modal" ? (
+                <button
+                  type="button"
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                  onClick={() => navigate("/auth/forgot-password")}
+                >
+                  Forgot password?
+                </button>
+              ) : (
+                <Link
+                  to="/auth/forgot-password"
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                  Forgot password?
+                </Link>
+              )}
             </div>
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={isSubmitting || isLoginLoading}

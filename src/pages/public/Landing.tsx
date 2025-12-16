@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Zap, BarChart3, ShieldCheck, CopyCheck, Activity } from "lucide-react";
 
-const Landing: React.FC = () => {
+const Home: React.FC = () => {
   return (
     <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100">
 
@@ -125,4 +125,4 @@ const Landing: React.FC = () => {
   );
 };
 
-export default Landing;
+export default Home;

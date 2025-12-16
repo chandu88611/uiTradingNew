@@ -1,7 +1,12 @@
-import { lazy } from "react"; 
+// routes.ts
+import { lazy } from "react";
 type AnyCmp = React.ComponentType<any>;
 type LazyAnyCmp = React.LazyExoticComponent<AnyCmp>;
 export type AppRoute = { path: string; element: AnyCmp | LazyAnyCmp };
+
+// ------------------------
+// LAZY IMPORTS
+// ------------------------
 
 // PUBLIC
 const Home = lazy(() => import("./pages/public/Landing"));
@@ -10,100 +15,110 @@ const SignIn = lazy(() => import("./pages/auth/SignIn"));
 const SignUp = lazy(() => import("./pages/auth/SignUp"));
 const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
 const ResetPassowrd = lazy(() => import("./pages/auth/ResetPassowrd"));
-const dashboard = lazy(() => import("./pages/dashboard/MyAccounts"));
+
+// USER DASHBOARD
+const Dashboard = lazy(() => import("./pages/dashboard/MyAccounts"));
 
 // USER PAGES
 const UserProfile = lazy(() => import("./pages/user/UserProfile"));
 const StrategyConfigure = lazy(() => import("./pages/user/StrategyConfigure"));
 
-// USER BROKER FLOW
 const UserBrokers = lazy(() => import("./pages/user/Dashboard"));
 const UserBrokerConnect = lazy(() => import("./pages/user/Brokers"));
-const UserBrokerSuccess = lazy(() => import("./pages/user/BrokerSuccessPage"));
-// const UserBrokerError = lazy(() => import("./pages/user/BrokerErrorPage"));
-const UserBrokerManage = lazy(() => import("./pages/user/BrokerManagePage"));
+const UserBrokerSuccess = lazy(
+  () => import("./pages/user/BrokerSuccessPage"),
+);
+const UserBrokerManage = lazy(
+  () => import("./pages/user/BrokerManagePage"),
+);
+
 const Conditions = lazy(() => import("./pages/user/Conditions"));
-
-
-// USER SUBSCRIPTION PAGES
-const Subscriptions= lazy(() => import("./pages/subscriptions/Subscriptions"));
-const SubscriptionTerms = lazy(() => import("./pages/subscriptions/SubscriptionTerms"));
-const SubscriptionBilling = lazy(() => import("./pages/subscriptions/SubscriptionBilling"));
-const SubscriptionSuccess = lazy(() => import("./pages/subscriptions/SubscriptionSuccess"));
-const SubscriptionDashboard = lazy(() => import("./pages/subscriptions/SubscriptionDashboard"));
-const SubscriptionSettlements = lazy(() => import("./pages/subscriptions/Settlements"));
-const SubscriptionInvoices = lazy(() => import("./pages/subscriptions/Invoices"));
-const SubscriptionInvoiceDetail = lazy(() => import("./pages/subscriptions/InvoiceDetailPage"));
-const RiskSettingsPage = lazy(() => import("./pages/user/RiskSettingsPage"));
-const SmartPositionSizingPage = lazy(() => import("./pages/user/SmartPositionSizingPage"));
-const SubscriptionPayment = lazy(() => import("./pages/subscriptions/SubscrptionPayment"));
+const RiskSettingsPage = lazy(
+  () => import("./pages/user/RiskSettingsPage"),
+);
+const SmartPositionSizingPage = lazy(
+  () => import("./pages/user/SmartPositionSizingPage"),
+);
 
 const TradeLogs = lazy(() => import("./pages/user/TradeHistoryPage"));
 const OrderLogs = lazy(() => import("./pages/user/LivePositionsPage"));
-// const WebhookLogs = lazy(() => import("./pages/user/WebhookLogs"));
 
-// ADMIN ROUTES
-const TradingAccounts = lazy(() => import("./pages/admin/Accounts"));
-const Strategy = lazy(() => import("./pages/admin/Strategy"));
-const TradingViewIndicators = lazy(() => import("./pages/admin/Tradingview"));
-const Subscribers = lazy(() => import("./pages/admin/copy-trading/Subscribers"));
-const CopySettings = lazy(() => import("./pages/admin/copy-trading/CopySettings"));
-const StrategyLinking = lazy(() => import("./pages/admin/copy-trading/StrategyLinking"));
-const FanoutSettings = lazy(() => import("./pages/admin/copy-trading/FanoutSettings"));
-const LiveTradingPage = lazy(() => import("./pages/admin/copy-trading/LiveTrading"));
-const CopyTradingStatus = lazy(() => import("./pages/admin/copy-trading/CopyTradingStatus"));
-// const Subscriptions = lazy(() => import("./pages/admin/subscriptions/BillingSubscriptionPage"));
-
-const BillingDashboard = lazy(() => import("./pages/admin/dashboard/BillingDashboard"));
-// COPY TRADING
+// COPY TRADING (user side)
 const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
-// const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading"));
+
+// USER SUBSCRIPTION PAGES
+const Subscriptions = lazy(
+  () => import("./pages/subscriptions/Subscriptions"),
+);
+const SubscriptionTerms = lazy(
+  () => import("./pages/subscriptions/SubscriptionTerms"),
+);
+const SubscriptionBilling = lazy(
+  () => import("./pages/subscriptions/SubscriptionBilling"),
+);
+const SubscriptionSuccess = lazy(
+  () => import("./pages/subscriptions/SubscriptionSuccess"),
+);
+const SubscriptionDashboard = lazy(
+  () => import("./pages/subscriptions/SubscriptionDashboard"),
+);
+const SubscriptionSettlements = lazy(
+  () => import("./pages/subscriptions/Settlements"),
+);
+const SubscriptionInvoices = lazy(
+  () => import("./pages/subscriptions/Invoices"),
+);
+const SubscriptionInvoiceDetail = lazy(
+  () => import("./pages/subscriptions/InvoiceDetailPage"),
+);
+const SubscriptionPayment = lazy(
+  () => import("./pages/subscriptions/SubscrptionPayment"),
+);
 
 // ------------------------
-// PUBLIC ROUTES
+// PUBLIC ROUTES (no login needed)
 // ------------------------
 export const publicRoutes: AppRoute[] = [
   { path: "/", element: Home },
   { path: "/about", element: About },
+
+  // auth
   { path: "/sign-in", element: SignIn },
   { path: "/sign-up", element: SignUp },
   { path: "/forgot-password", element: ForgotPassword },
   { path: "/reset-password", element: ResetPassowrd },
-  { path: "/dashboard", element: dashboard },
 
-  // user
-  { path: "/profile", element: UserProfile },
+  // marketing/landing version of copy-trading if you want it public
   { path: "/copy-trading", element: CopyTrading },
+  { path: "/subscriptions", element: Subscriptions },
 
-  // user broker flow
+];
+
+// ------------------------
+// USER PROTECTED ROUTES (must be logged in)
+// ------------------------
+export const userProtectedRoutes: AppRoute[] = [
+  { path: "/dashboard", element: Dashboard },
+
+  { path: "/profile", element: UserProfile },
+  { path: "/user/use-strategy", element: StrategyConfigure },
+
+  // broker flow
   { path: "/user/brokers", element: UserBrokers },
   { path: "/user/brokers/connect/:broker", element: UserBrokerConnect },
   { path: "/user/brokers/success/:broker", element: UserBrokerSuccess },
   { path: "/user/brokers/manage/:broker", element: UserBrokerManage },
-    { path: "/user/logs/trades", element: TradeLogs },
+
+  // logs
+  { path: "/user/logs/trades", element: TradeLogs },
   { path: "/user/logs/orders", element: OrderLogs },
+
+  // settings
   { path: "/user/settings", element: RiskSettingsPage },
   { path: "/user/smart-positioning", element: SmartPositionSizingPage },
   { path: "/user/conditions", element: Conditions },
-  { path: "/user/use-strategy", element: StrategyConfigure },
 
-  // { path: "/user/logs/webhooks", element: WebhookLogs },
-
-  // admin
-  { path: "/trading-accounts", element: TradingAccounts },
-  { path: "/strategy", element: Strategy },
-  { path: "/tradingview-indicators", element: TradingViewIndicators },
-  { path: "/subscribers", element: Subscribers },
-  { path: "/master-control", element: CopySettings },
-  { path: "/strategy-linking", element: StrategyLinking },
-  { path: "/fanout-settings", element: FanoutSettings },
-  { path: "/live-trading", element: LiveTradingPage },
-  { path: "/live-trading-status", element: CopyTradingStatus },
-  { path: "/subscriptions", element: Subscriptions },
-  { path: "/billing-dashboard", element: BillingDashboard },
-
-
-    // SUBSCRIPTIONS (USER)
+  // subscriptions
   { path: "/subscriptions", element: Subscriptions },
   { path: "/subscriptions/terms", element: SubscriptionTerms },
   { path: "/subscriptions/billing", element: SubscriptionBilling },
@@ -113,37 +128,4 @@ export const publicRoutes: AppRoute[] = [
   { path: "/subscriptions/invoices", element: SubscriptionInvoices },
   { path: "/subscriptions/invoices/:id", element: SubscriptionInvoiceDetail },
   { path: "/subscriptions/payment", element: SubscriptionPayment },
-
-];
-
-
-
-// ------------------------
-// ADMIN PROTECTED ROUTES
-// ------------------------
-export const adminProtectedRoutes: AppRoute[] = [
-  { path: "/trading-accounts", element: TradingAccounts },
-  { path: "/strategy", element: Strategy }, 
-  { path: "/tradingview-indicators", element: TradingViewIndicators },
-  { path: "/fanout-settings", element: FanoutSettings },
-  { path: "/live-trading", element: LiveTradingPage },
-  { path: "/live-trading-status", element: CopyTradingStatus },
-  { path: "/billing-dashboard", element: BillingDashboard },
-];
-
-// ------------------------
-// USER PROTECTED ROUTES
-// ------------------------
-export const userProtectedRoutes: AppRoute[] = [
-  { path: "/profile", element: UserProfile },
-
-  // FULL broker system for users
-  { path: "/user/brokers", element: UserBrokers },
-  { path: "/user/brokers/connect/:broker", element: UserBrokerConnect },
-  { path: "/user/brokers/success/:broker", element: UserBrokerSuccess },
-  { path: "/user/brokers/manage/:broker", element: UserBrokerManage },
-
-    { path: "/user/logs/trades", element: TradeLogs },
-  { path: "/user/logs/orders", element: OrderLogs },
-  // { path: "/user/logs/webhooks", element: WebhookLogs },
 ];

@@ -163,7 +163,7 @@ const CopyControlCenter: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#050810] text-slate-50">
+    <div className="min-h-screen px-6 pt-16  md:pt-28 bg-[#050810] text-slate-50">
       <div className="mx-auto max-w-7xl px-4 pb-10 pt-6 sm:px-6 lg:px-8">
         {/* HEADER */}
         <div className="flex flex-col gap-3 border-b border-white/5 pb-5 md:flex-row md:items-center md:justify-between">

@@ -1,336 +1,729 @@
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
-  User,
+  User as UserIcon,
   Mail,
-  Phone,
-  PlusCircle,
-  Pencil,
-  Trash2,
-  KeyRound,
-  Lock,
   ShieldCheck,
+  Pencil,
+  Lock,
+  CreditCard,
+  MapPin,
+  Building2,
+  Hash,
 } from "lucide-react";
+import { toast } from "react-toastify";
 import Modal from "../../components/Model";
 
-// --------------------------------------------------------------------
-// MOCK DATA
-// --------------------------------------------------------------------
-const mockUser = {
-  name: "Rahul Sharma",
-  email: "rahul.sharma@example.com",
-  phone: "+91 9876543210",
-  verified: true,
-  brokers: [
-    { id: 1, name: "Zerodha", accountId: "Z12345", status: "Connected" },
-    { id: 2, name: "Dhan", accountId: "DH99872", status: "Connected" },
-  ],
-  apiKeys: [
-    { id: "key_1", value: "sk_live_abc123df456" },
-    { id: "key_2", value: "sk_live_xyz987qp321" },
-  ],
-};
+import {
+  useGetMeQuery,
+  useUpdateMeMutation,
+  useGetBillingDetailsQuery,
+  useSaveBillingDetailsMutation,
+  useChangePasswordMutation,
+} from "../../services/userApi";
 
-// --------------------------------------------------------------------
-// MAIN COMPONENT
-// --------------------------------------------------------------------
+/** helpers */
+const inputBase =
+  "mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 outline-none transition-all duration-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400";
+
+const sectionBase =
+  "rounded-2xl border border-slate-800 bg-slate-900/40 p-6";
+
+function pickUser(res: any) {
+  // supports: { user }, { data }, { message, data }
+  return res?.user || res?.data || null;
+}
+
+function pickBilling(res: any) {
+  // supports: { data }, { message, data }
+  return res?.data || null;
+}
+
 export default function UserProfilePage() {
+  const [activeTab, setActiveTab] = useState<"profile" | "billing">("profile");
+
+  // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
-  const [addBrokerOpen, setAddBrokerOpen] = useState(false);
-  const [editBroker, setEditBroker] = useState<any>(null);
+  const [editBillingOpen, setEditBillingOpen] = useState(false);
   const [changePassOpen, setChangePassOpen] = useState(false);
 
-  return (
-    <div className="min-h-screen px-6 pt-16  md:pt-28 px-4 py-8 bg-slate-950 text-white">
-      <div className="mx-auto w-full max-w-5xl space-y-8">
+  // QUERIES
+  const {
+    data: meRes,
+    isLoading: meLoading,
+    isFetching: meFetching,
+    refetch: refetchMe,
+  } = useGetMeQuery();
 
-        {/* ------------------------------------------------------------ */}
+  const {
+    data: billingRes,
+    isLoading: billingLoading,
+    isFetching: billingFetching,
+    refetch: refetchBilling,
+  } = useGetBillingDetailsQuery();
+
+  const user = useMemo(() => pickUser(meRes), [meRes]);
+  const billing = useMemo(() => pickBilling(billingRes), [billingRes]);
+
+  // MUTATIONS
+  const [updateMe, { isLoading: updatingMe }] = useUpdateMeMutation();
+  const [saveBilling, { isLoading: savingBilling }] =
+    useSaveBillingDetailsMutation();
+  const [changePassword, { isLoading: changingPass }] =
+    useChangePasswordMutation();
+
+  const loading = meLoading || meFetching;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white pt-16 md:pt-28 px-4 md:px-6 pb-10">
+      <div className="mx-auto w-full max-w-5xl space-y-8">
         {/* HEADER */}
-        {/* ------------------------------------------------------------ */}
         <div>
           <h1 className="text-2xl font-semibold">Profile Settings</h1>
           <p className="text-slate-400 text-sm mt-1">
-            Manage your personal details, brokers, API keys & security settings
+            Manage your personal details, billing info & security.
           </p>
         </div>
 
-        {/* ------------------------------------------------------------ */}
-        {/* PROFILE SECTION */}
-        {/* ------------------------------------------------------------ */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Personal Information</h2>
+        {/* TOP TABS */}
+        <div className="flex flex-wrap gap-2">
+          <TabButton
+            active={activeTab === "profile"}
+            onClick={() => setActiveTab("profile")}
+            icon={<UserIcon size={16} />}
+            label="Profile"
+          />
+          <TabButton
+            active={activeTab === "billing"}
+            onClick={() => setActiveTab("billing")}
+            icon={<CreditCard size={16} />}
+            label="Billing"
+          />
+          <div className="flex-1" />
+          <button
+            onClick={() => setChangePassOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
+          >
+            <Lock size={16} />
+            Change Password
+          </button>
+        </div>
 
+        {/* LOADING STATE */}
+        {loading ? (
+          <ProfileSkeleton />
+        ) : !user ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-300">
+            Unable to load profile.{" "}
             <button
-              onClick={() => setEditProfileOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+              onClick={() => refetchMe()}
+              className="text-emerald-400 hover:text-emerald-300 font-medium"
             >
-              <Pencil size={15} />
-              Edit
+              Retry
             </button>
           </div>
+        ) : (
+          <>
+            {/* PROFILE TAB */}
+            {activeTab === "profile" && (
+              <>
+                <section className={sectionBase}>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className="text-xl font-semibold">Personal Information</h2>
 
-          <div className="mt-6 grid gap-6 sm:grid-cols-2">
-            <InfoRow label="Full Name" value={mockUser.name} icon={<User />} />
-            <InfoRow label="Email" value={mockUser.email} icon={<Mail />} />
-            <InfoRow label="Phone" value={mockUser.phone} icon={<Phone />} />
-            <InfoRow
-              label="Verification"
-              value={mockUser.verified ? "Verified" : "Not Verified"}
-              icon={<ShieldCheck />}
-            />
-          </div>
-        </section>
+                    <button
+                      onClick={() => setEditProfileOpen(true)}
+                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                    >
+                      <Pencil size={15} />
+                      Edit
+                    </button>
+                  </div>
 
-        {/* ------------------------------------------------------------ */}
-        {/* BROKER ACCOUNTS */}
-        {/* ------------------------------------------------------------ */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Connected Brokers</h2>
+                  <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                    <InfoRow
+                      label="Full Name"
+                      value={user?.name || "—"}
+                      icon={<UserIcon />}
+                    />
+                    <InfoRow label="Email" value={user?.email || "—"} icon={<Mail />} />
+                    <InfoRow
+                      label="Verification"
+                      value={user?.isEmailVerified ? "Verified" : "Not Verified"}
+                      icon={<ShieldCheck />}
+                      valueClass={user?.isEmailVerified ? "text-emerald-300" : "text-rose-300"}
+                    />
+                    <InfoRow
+                      label="User ID"
+                      value={String(user?.id ?? "—")}
+                      icon={<Hash />}
+                    />
+                  </div>
+                </section>
 
-            <button
-              onClick={() => setAddBrokerOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-            >
-              <PlusCircle size={16} />
-              Add Broker
-            </button>
-          </div>
+                {/* SECURITY NOTE */}
+                <section className={sectionBase}>
+                  <h2 className="text-xl font-semibold">Security</h2>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Keep your password strong. If you logged in via Google, you can still set a password later.
+                  </p>
+                </section>
+              </>
+            )}
 
-          <div className="mt-6 space-y-4">
-            {mockUser.brokers.map((b) => (
-              <motion.div
-                key={b.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/70 p-5"
-              >
-                <div>
-                  <h4 className="text-sm font-semibold text-white">
-                    {b.name}
-                  </h4>
-                  <p className="text-xs text-slate-400">Account: {b.accountId}</p>
-                  <p className="text-xs text-emerald-400">Status: {b.status}</p>
-                </div>
+            {/* BILLING TAB */}
+            {activeTab === "billing" && (
+              <>
+                <section className={sectionBase}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-xl font-semibold">Billing Details</h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        PAN is optional ✅. Add bank + address for invoices/withdrawals.
+                      </p>
+                    </div>
 
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setEditBroker(b)}
-                    className="flex items-center gap-1 rounded-full bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700"
-                  >
-                    <Pencil size={14} />
-                  </button>
+                    <button
+                      onClick={() => setEditBillingOpen(true)}
+                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                    >
+                      <Pencil size={15} />
+                      Edit Billing
+                    </button>
+                  </div>
 
-                  <button className="flex items-center gap-1 rounded-full bg-red-500/20 px-3 py-1 text-xs text-red-300 hover:bg-red-500/30">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </section>
-
-        {/* ------------------------------------------------------------ */}
-        {/* API KEYS */}
-        {/* ------------------------------------------------------------ */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">API Keys</h2>
-
-            <button className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400">
-              <PlusCircle size={16} />
-              Generate API Key
-            </button>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            {mockUser.apiKeys.map((k) => (
-              <div
-                key={k.id}
-                className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/70 p-5"
-              >
-                <div>
-                  <p className="text-sm text-slate-200">{k.value}</p>
-                </div>
-                <button className="rounded-full bg-red-500/20 px-3 py-1 text-xs text-red-300 hover:bg-red-500/30">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ------------------------------------------------------------ */}
-        {/* SECURITY */}
-        {/* ------------------------------------------------------------ */}
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Security</h2>
-
-            <button
-              onClick={() => setChangePassOpen(true)}
-              className="flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-            >
-              <Lock size={16} />
-              Change Password
-            </button>
-          </div>
-
-          <p className="mt-4 text-sm text-slate-400">
-            Manage your account security and authentication.
-          </p>
-        </section>
+                  {(billingLoading || billingFetching) ? (
+                    <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
+                  ) : (
+                    <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                      <InfoRow
+                        label="PAN Number"
+                        value={billing?.panNumber || "—"}
+                        icon={<Hash />}
+                      />
+                      <InfoRow
+                        label="Account Holder"
+                        value={billing?.accountHolderName || "—"}
+                        icon={<UserIcon />}
+                      />
+                      <InfoRow
+                        label="Account Number"
+                        value={billing?.accountNumber ? maskAccount(billing.accountNumber) : "—"}
+                        icon={<CreditCard />}
+                      />
+                      <InfoRow
+                        label="IFSC Code"
+                        value={billing?.ifscCode || "—"}
+                        icon={<Building2 />}
+                      />
+                      <InfoRow
+                        label="Bank / Branch"
+                        value={`${billing?.bankName || "—"}${billing?.branch ? ` • ${billing.branch}` : ""}`}
+                        icon={<Building2 />}
+                      />
+                      <InfoRow
+                        label="Address"
+                        value={formatAddress(billing)}
+                        icon={<MapPin />}
+                      />
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      {/* ------------------------------------------------------------ */}
       {/* MODALS */}
-      {/* ------------------------------------------------------------ */}
 
-      {/* Edit Profile */}
+      {/* EDIT PROFILE */}
       <Modal open={editProfileOpen} onClose={() => setEditProfileOpen(false)}>
-        <ProfileEditForm onClose={() => setEditProfileOpen(false)} />
+        <ProfileEditForm
+          user={user}
+          loading={updatingMe}
+          onClose={() => setEditProfileOpen(false)}
+          onSave={async (payload) => {
+            try {
+              await updateMe(payload as any).unwrap();
+              toast.success("Profile updated");
+              setEditProfileOpen(false);
+              refetchMe();
+            } catch (err: any) {
+              toast.error(err?.data?.message || "Failed to update profile");
+            }
+          }}
+        />
       </Modal>
 
-      {/* Add Broker */}
-      <Modal open={addBrokerOpen} onClose={() => setAddBrokerOpen(false)}>
-        <AddBrokerForm onClose={() => setAddBrokerOpen(false)} />
+      {/* EDIT BILLING */}
+      <Modal open={editBillingOpen} onClose={() => setEditBillingOpen(false)}>
+        <BillingEditForm
+          billing={billing}
+          loading={savingBilling}
+          onClose={() => setEditBillingOpen(false)}
+          onSave={async (payload) => {
+            try {
+              await saveBilling(payload as any).unwrap();
+              toast.success("Billing details saved");
+              setEditBillingOpen(false);
+              refetchBilling();
+            } catch (err: any) {
+              toast.error(err?.data?.message || "Failed to save billing");
+            }
+          }}
+        />
       </Modal>
 
-      {/* Edit Broker */}
-      <Modal open={!!editBroker} onClose={() => setEditBroker(null)}>
-        {editBroker && (
-          <EditBrokerForm broker={editBroker} onClose={() => setEditBroker(null)} />
-        )}
-      </Modal>
-
-      {/* Change Password */}
+      {/* CHANGE PASSWORD */}
       <Modal open={changePassOpen} onClose={() => setChangePassOpen(false)}>
-        <ChangePasswordForm onClose={() => setChangePassOpen(false)} />
+        <ChangePasswordForm
+          loading={changingPass}
+          onClose={() => setChangePassOpen(false)}
+          onSave={async (payload) => {
+            try {
+              await changePassword(payload as any).unwrap();
+              toast.success("Password updated");
+              setChangePassOpen(false);
+            } catch (err: any) {
+              toast.error(err?.data?.message || "Failed to change password");
+            }
+          }}
+        />
       </Modal>
     </div>
   );
 }
 
-// --------------------------------------------------------------------
-// REUSABLE INFO ROW
-// --------------------------------------------------------------------
-function InfoRow({ label, value, icon }: any) {
+/* ---------------- UI pieces ---------------- */
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
+        active
+          ? "bg-emerald-500 text-slate-950 border-emerald-500"
+          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  icon,
+  valueClass = "",
+}: any) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
         {icon}
       </div>
-      <div>
+      <div className="min-w-0">
         <p className="text-xs text-slate-400">{label}</p>
-        <p className="text-sm font-medium">{value}</p>
+        <p className={`text-sm font-medium truncate ${valueClass}`}>{value}</p>
       </div>
     </div>
   );
 }
 
-// --------------------------------------------------------------------
-// FORMS
-// --------------------------------------------------------------------
-
-// PERSONAL INFO EDIT
-function ProfileEditForm({ onClose }: any) {
+function ProfileSkeleton() {
   return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Edit Profile</h3>
+    <div className="space-y-6">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 animate-pulse">
+        <div className="h-5 w-52 bg-slate-800 rounded" />
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <div className="h-4 w-28 bg-slate-800 rounded" />
+              <div className="h-4 w-40 bg-slate-800 rounded mt-3" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Forms ---------------- */
+
+function ProfileEditForm({
+  user,
+  loading,
+  onClose,
+  onSave,
+}: {
+  user: any;
+  loading: boolean;
+  onClose: () => void;
+  onSave: (payload: { name?: string }) => void;
+}) {
+  const [name, setName] = useState(user?.name || "");
+  const email = user?.email || "";
+
+  useEffect(() => {
+    setName(user?.name || "");
+  }, [user?.name]);
+
+  return (
+    <div className="text-slate-100">
+      <h3 className="text-lg font-semibold mb-1">Edit Profile</h3>
+      <p className="text-xs text-slate-400 mb-5">
+        Email change is disabled for now (can be added later).
+      </p>
 
       <div className="space-y-4">
-        <Input label="Full Name" defaultValue={mockUser.name} />
-        <Input label="Email" defaultValue={mockUser.email} />
-        <Input label="Phone" defaultValue={mockUser.phone} />
+        <Field label="Full Name">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={inputBase}
+            placeholder="Enter your name"
+          />
+        </Field>
+
+        <Field label="Email">
+          <input
+            value={email}
+            disabled
+            className={`${inputBase} opacity-70 cursor-not-allowed`}
+          />
+        </Field>
       </div>
 
-      <Actions onClose={onClose} />
-    </div>
-  );
-}
-
-// ADD BROKER
-function AddBrokerForm({ onClose }: any) {
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Add Broker</h3>
-
-      <div className="space-y-4">
-        <Input label="Broker Name" placeholder="Zerodha / Dhan / Angel" />
-        <Input label="Account ID" placeholder="Enter your broker ID" />
-      </div>
-
-      <Actions onClose={onClose} />
-    </div>
-  );
-}
-
-// EDIT BROKER
-function EditBrokerForm({ broker, onClose }: any) {
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Edit Broker</h3>
-
-      <div className="space-y-4">
-        <Input label="Broker Name" defaultValue={broker.name} />
-        <Input label="Account ID" defaultValue={broker.accountId} />
-      </div>
-
-      <Actions onClose={onClose} />
-    </div>
-  );
-}
-
-// CHANGE PASSWORD
-function ChangePasswordForm({ onClose }: any) {
-  return (
-    <div>
-      <h3 className="text-lg font-semibold mb-4">Change Password</h3>
-
-      <div className="space-y-4">
-        <Input label="Current Password" type="password" />
-        <Input label="New Password" type="password" />
-        <Input label="Confirm New Password" type="password" />
-      </div>
-
-      <Actions onClose={onClose} mainText="Update Password" onCloseText="Close" />
-    </div>
-  );
-}
-
-// --------------------------------------------------------------------
-// REUSABLE ELEMENTS
-// --------------------------------------------------------------------
-function Input({ label, ...props }: any) {
-  return (
-    <div>
-      <label className="text-sm text-slate-300">{label}</label>
-      <input
-        {...props}
-        className="mt-1 w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm"
+      <FooterActions
+        onClose={onClose}
+        mainText={loading ? "Saving..." : "Save Changes"}
+        disabled={loading}
+        onMain={() => onSave({ name: name.trim() })}
       />
     </div>
   );
 }
 
-function Actions({
+function BillingEditForm({
+  billing,
+  loading,
   onClose,
-  mainText = "Save Changes",
-  onCloseText = "Cancel",
-}: any) {
+  onSave,
+}: {
+  billing: any;
+  loading: boolean;
+  onClose: () => void;
+  onSave: (payload: any) => void;
+}) {
+  const [form, setForm] = useState({
+    panNumber: billing?.panNumber ?? "",
+    accountHolderName: billing?.accountHolderName ?? "",
+    accountNumber: billing?.accountNumber ?? "",
+    ifscCode: billing?.ifscCode ?? "",
+    bankName: billing?.bankName ?? "",
+    branch: billing?.branch ?? "",
+    addressLine1: billing?.addressLine1 ?? "",
+    addressLine2: billing?.addressLine2 ?? "",
+    city: billing?.city ?? "",
+    state: billing?.state ?? "",
+    pincode: billing?.pincode ?? "",
+  });
+
+  useEffect(() => {
+    setForm({
+      panNumber: billing?.panNumber ?? "",
+      accountHolderName: billing?.accountHolderName ?? "",
+      accountNumber: billing?.accountNumber ?? "",
+      ifscCode: billing?.ifscCode ?? "",
+      bankName: billing?.bankName ?? "",
+      branch: billing?.branch ?? "",
+      addressLine1: billing?.addressLine1 ?? "",
+      addressLine2: billing?.addressLine2 ?? "",
+      city: billing?.city ?? "",
+      state: billing?.state ?? "",
+      pincode: billing?.pincode ?? "",
+    });
+  }, [billing]);
+
+  const set = (k: string, v: string) => setForm((p: any) => ({ ...p, [k]: v }));
+
+  return (
+    <div className="text-slate-100">
+      <h3 className="text-lg font-semibold mb-1">Edit Billing Details</h3>
+      <p className="text-xs text-slate-400 mb-5">
+        PAN is optional ✅. Fill what you have — you can update later.
+      </p>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="PAN Number (Optional)">
+          <input
+            value={form.panNumber}
+            onChange={(e) => set("panNumber", e.target.value)}
+            className={inputBase}
+            placeholder="ABCDE1234F"
+          />
+        </Field>
+
+        <Field label="Account Holder Name">
+          <input
+            value={form.accountHolderName}
+            onChange={(e) => set("accountHolderName", e.target.value)}
+            className={inputBase}
+            placeholder="Name as per bank"
+          />
+        </Field>
+
+        <Field label="Account Number">
+          <input
+            value={form.accountNumber}
+            onChange={(e) => set("accountNumber", e.target.value)}
+            className={inputBase}
+            placeholder="XXXXXX"
+          />
+        </Field>
+
+        <Field label="IFSC Code">
+          <input
+            value={form.ifscCode}
+            onChange={(e) => set("ifscCode", e.target.value)}
+            className={inputBase}
+            placeholder="HDFC0001234"
+          />
+        </Field>
+
+        <Field label="Bank Name">
+          <input
+            value={form.bankName}
+            onChange={(e) => set("bankName", e.target.value)}
+            className={inputBase}
+            placeholder="HDFC / SBI / ICICI..."
+          />
+        </Field>
+
+        <Field label="Branch (Optional)">
+          <input
+            value={form.branch}
+            onChange={(e) => set("branch", e.target.value)}
+            className={inputBase}
+            placeholder="Branch name"
+          />
+        </Field>
+      </div>
+
+      <div className="mt-6">
+        <p className="text-sm font-semibold text-slate-200 mb-3">Address</p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Address Line 1">
+            <input
+              value={form.addressLine1}
+              onChange={(e) => set("addressLine1", e.target.value)}
+              className={inputBase}
+              placeholder="House / Street"
+            />
+          </Field>
+
+          <Field label="Address Line 2 (Optional)">
+            <input
+              value={form.addressLine2}
+              onChange={(e) => set("addressLine2", e.target.value)}
+              className={inputBase}
+              placeholder="Area / Landmark"
+            />
+          </Field>
+
+          <Field label="City">
+            <input
+              value={form.city}
+              onChange={(e) => set("city", e.target.value)}
+              className={inputBase}
+              placeholder="City"
+            />
+          </Field>
+
+          <Field label="State">
+            <input
+              value={form.state}
+              onChange={(e) => set("state", e.target.value)}
+              className={inputBase}
+              placeholder="State"
+            />
+          </Field>
+
+          <Field label="Pincode">
+            <input
+              value={form.pincode}
+              onChange={(e) => set("pincode", e.target.value)}
+              className={inputBase}
+              placeholder="560001"
+            />
+          </Field>
+        </div>
+      </div>
+
+      <FooterActions
+        onClose={onClose}
+        mainText={loading ? "Saving..." : "Save Billing"}
+        disabled={loading}
+        onMain={() =>
+          onSave({
+            // send nulls for empty strings if you want
+            ...normalizeEmptyToNull(form),
+          })
+        }
+      />
+    </div>
+  );
+}
+
+function ChangePasswordForm({
+  loading,
+  onClose,
+  onSave,
+}: {
+  loading: boolean;
+  onClose: () => void;
+  onSave: (payload: { currentPassword: string; newPassword: string }) => void;
+}) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const canSubmit =
+    currentPassword.length >= 1 &&
+    newPassword.length >= 6 &&
+    newPassword === confirm;
+
+  return (
+    <div className="text-slate-100">
+      <h3 className="text-lg font-semibold mb-1">Change Password</h3>
+      <p className="text-xs text-slate-400 mb-5">
+        Use a strong password. Minimum 6 characters.
+      </p>
+
+      <div className="space-y-4">
+        <Field label="Current Password">
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            className={inputBase}
+            placeholder="Enter current password"
+          />
+        </Field>
+
+        <Field label="New Password">
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className={inputBase}
+            placeholder="Create a new password"
+          />
+        </Field>
+
+        <Field label="Confirm New Password">
+          <input
+            type="password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            className={inputBase}
+            placeholder="Re-enter new password"
+          />
+          {confirm.length > 0 && newPassword !== confirm && (
+            <p className="mt-1 text-xs text-rose-400">Passwords do not match</p>
+          )}
+        </Field>
+      </div>
+
+      <FooterActions
+        onClose={onClose}
+        mainText={loading ? "Updating..." : "Update Password"}
+        disabled={loading || !canSubmit}
+        onMain={() => onSave({ currentPassword, newPassword })}
+      />
+    </div>
+  );
+}
+
+/* ---------------- Small UI helpers ---------------- */
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-300">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function FooterActions({
+  onClose,
+  mainText,
+  disabled,
+  onMain,
+}: {
+  onClose: () => void;
+  mainText: string;
+  disabled?: boolean;
+  onMain: () => void;
+}) {
   return (
     <div className="mt-6 flex justify-end gap-2">
       <button
         onClick={onClose}
         className="rounded-full bg-slate-700 px-4 py-2 text-sm hover:bg-slate-600"
       >
-        {onCloseText}
+        Cancel
       </button>
 
-      <button className="rounded-full bg-emerald-500 px-4 py-2 text-sm text-slate-950 hover:bg-emerald-400">
+      <button
+        disabled={disabled}
+        onClick={onMain}
+        className="rounded-full bg-emerald-500 px-4 py-2 text-sm text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
         {mainText}
       </button>
     </div>
   );
+}
+
+/* ---------------- Formatting helpers ---------------- */
+
+function maskAccount(n: string) {
+  const s = String(n);
+  if (s.length <= 4) return s;
+  return `${"•".repeat(Math.max(0, s.length - 4))}${s.slice(-4)}`;
+}
+
+function formatAddress(b: any) {
+  if (!b) return "—";
+  const parts = [
+    b.addressLine1,
+    b.addressLine2,
+    b.city,
+    b.state,
+    b.pincode,
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : "—";
+}
+
+function normalizeEmptyToNull(obj: Record<string, any>) {
+  const out: Record<string, any> = {};
+  Object.keys(obj).forEach((k) => {
+    const v = obj[k];
+    out[k] = typeof v === "string" && v.trim() === "" ? null : v;
+  });
+  return out;
 }

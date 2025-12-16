@@ -9,13 +9,11 @@ const Footer: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <img
-                src="assets/images/resources/logo-1.png"
+                src="/logo.png"
                 alt="Logo"
-                className="h-7 w-auto"
+                className="h-8 w-auto"
               />
-              <span className="text-sm font-semibold tracking-tight text-slate-100">
-                Tradebro
-              </span>
+           
             </div>
             <p className="text-sm text-slate-400">
               Monitor your trading accounts, execute strategies, and track your

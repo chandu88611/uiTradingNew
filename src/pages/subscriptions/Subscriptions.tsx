@@ -88,12 +88,20 @@ const SubscriptionsPage: React.FC = () => {
   const [selection, setSelection] = useState<SelectionState | null>(null);
   const [search, setSearch] = useState("");
 
-  // ✅ auth state
-  const { data: meRes } = useMeQuery(undefined, {
+  // ✅ auth state (robust + won't flicker)
+  const {
+    data: meRes,
+    isLoading: meLoading,
+    isFetching: meFetching,
+    isError: meError,
+  } = useMeQuery(undefined, {
     refetchOnMountOrArgChange: true,
   } as any);
 
-  const isAuthenticated = Boolean((meRes as any)?.data?.id);
+  // supports both: { data: { id } } and direct { id }
+  const me = (meRes as any)?.data ?? meRes;
+  const isAuthenticated = Boolean(me?.id || me?.user?.id);
+  const authReady = !(meLoading || meFetching);
 
   // ✅ modal
   const [authOpen, setAuthOpen] = useState(false);
@@ -136,14 +144,17 @@ const SubscriptionsPage: React.FC = () => {
     window.location.href = `/subscriptions/terms?${params.toString()}`;
   };
 
-  // ✅ NEW: only select plan on click
+  // ✅ only select plan on click
   const handleSelectPlan = (sel: SelectionState) => {
     setSelection(sel);
   };
 
-  // ✅ NEW: Continue button handles auth + proceed
+  // ✅ Continue button handles auth + proceed
   const handleContinue = () => {
     if (!selection) return;
+
+    // ✅ don't decide auth until /me query is settled
+    if (!authReady) return;
 
     if (isAuthenticated) {
       goToTerms(selection);
@@ -214,7 +225,6 @@ const SubscriptionsPage: React.FC = () => {
           ))}
         </ul>
 
-        {/* ✅ only selection indicator */}
         {selected && (
           <div className="mt-5">
             <span className="inline-flex rounded-full bg-emerald-500/15 text-emerald-400 px-3 py-1 border border-emerald-500/30 text-xs">
@@ -249,6 +259,13 @@ const SubscriptionsPage: React.FC = () => {
             <p className="text-slate-400 mt-2 max-w-2xl mx-auto text-sm md:text-base">
               Select your plan → accept terms → billing → payment.
             </p>
+
+            {/* optional debug hint (safe to keep/remove) */}
+            {!meLoading && meError && (
+              <p className="text-xs text-yellow-400 mt-2">
+                Auth check failed (/me). If you are logged in, ensure baseApi uses credentials: "include".
+              </p>
+            )}
           </div>
 
           <div className="max-w-3xl mx-auto mb-8">
@@ -442,13 +459,14 @@ const SubscriptionsPage: React.FC = () => {
             </div>
 
             <button
-              disabled={!selection}
+              disabled={!selection || !authReady}
               onClick={handleContinue}
               className={`inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition ${
-                selection
+                selection && authReady
                   ? "bg-emerald-500 text-slate-950 hover:bg-emerald-400"
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
               }`}
+              title={!authReady ? "Checking login status..." : undefined}
             >
               Continue <ArrowRight size={18} />
             </button>

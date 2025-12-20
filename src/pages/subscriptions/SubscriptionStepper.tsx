@@ -5,16 +5,14 @@ import { motion } from "framer-motion";
 const steps = [
   { id: 1, label: "Plan", description: "Choose subscription" },
   { id: 2, label: "Agreement", description: "Accept terms" },
-  { id: 3, label: "Billing", description: "Add bank & PAN" },
+  { id: 3, label: "Billing", description: "Add invoice details" },
   { id: 4, label: "Payment", description: "Confirm & activate" },
-  { id: 5, label: "Done", description: "Start copy trading" },
-];
+  { id: 5, label: "Done", description: "Start trading" },
+] as const;
 
-interface Props {
-  currentStep: number; // 1-5
-}
+export type FlowStep = (typeof steps)[number]["id"];
 
-const SubscriptionStepper: React.FC<Props> = ({ currentStep }) => {
+export default function SubscriptionStepper({ currentStep }: { currentStep: FlowStep }) {
   return (
     <div className="mb-8">
       <div className="flex justify-between gap-2">
@@ -25,18 +23,14 @@ const SubscriptionStepper: React.FC<Props> = ({ currentStep }) => {
           return (
             <div key={step.id} className="flex-1 flex flex-col items-center">
               <div className="relative flex items-center w-full">
-                {/* Left connector */}
                 {idx !== 0 && (
                   <div
                     className={`flex-1 h-[2px] ${
-                      isCompleted || isActive
-                        ? "bg-emerald-500"
-                        : "bg-slate-700"
+                      isCompleted || isActive ? "bg-emerald-500" : "bg-slate-700"
                     }`}
                   />
                 )}
 
-                {/* Node */}
                 <motion.div
                   className={`flex items-center justify-center rounded-full border-2 w-8 h-8 shrink-0
                     ${
@@ -62,13 +56,10 @@ const SubscriptionStepper: React.FC<Props> = ({ currentStep }) => {
                   )}
                 </motion.div>
 
-                {/* Right connector */}
                 {idx !== steps.length - 1 && (
                   <div
                     className={`flex-1 h-[2px] ${
-                      currentStep > step.id
-                        ? "bg-emerald-500"
-                        : "bg-slate-700"
+                      currentStep > step.id ? "bg-emerald-500" : "bg-slate-700"
                     }`}
                   />
                 )}
@@ -77,16 +68,12 @@ const SubscriptionStepper: React.FC<Props> = ({ currentStep }) => {
               <div className="mt-2 text-center">
                 <p
                   className={`text-xs font-semibold uppercase tracking-wide ${
-                    isActive || isCompleted
-                      ? "text-emerald-400"
-                      : "text-slate-400"
+                    isActive || isCompleted ? "text-emerald-400" : "text-slate-400"
                   }`}
                 >
                   {step.label}
                 </p>
-                <p className="text-[11px] text-slate-500">
-                  {step.description}
-                </p>
+                <p className="text-[11px] text-slate-500">{step.description}</p>
               </div>
             </div>
           );
@@ -94,6 +81,4 @@ const SubscriptionStepper: React.FC<Props> = ({ currentStep }) => {
       </div>
     </div>
   );
-};
-
-export default SubscriptionStepper;
+}

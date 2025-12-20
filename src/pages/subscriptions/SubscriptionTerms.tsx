@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   FileText,
@@ -9,13 +9,50 @@ import {
 } from "lucide-react";
 import SubscriptionStepper from "./SubscriptionStepper";
 
+type FlowState = {
+  planId: number;
+  mode: "strategies" | "copy" | "both";
+  termsAccepted: boolean;
+  acceptedAt: string;
+};
+
+const FLOW_KEY = "subscription_flow_v1";
+
 const TermsPage: React.FC = () => {
   const [accepted, setAccepted] = useState(false);
 
+  // Read planId + mode from URL
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const planId = Number(params.get("planId") || 0);
+  const mode = (params.get("mode") || "copy") as FlowState["mode"];
+
+  // Guard: if no planId, push back to plans page
+  useEffect(() => {
+    if (!planId) {
+      window.location.href = "/subscriptions";
+      return;
+    }
+  }, [planId]);
+
   const handleAccept = () => {
     if (!accepted) return;
-    // No API for now – just move to billing step
-    window.location.href = "/subscriptions/billing";
+
+    const flow: FlowState = {
+      planId,
+      mode,
+      termsAccepted: true,
+      acceptedAt: new Date().toISOString(),
+    };
+
+    // ✅ Persist flow state for next pages
+    sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+
+    // ✅ Keep planId/mode in URL so user can refresh safely
+    const next = new URLSearchParams();
+    next.set("planId", String(planId));
+    next.set("mode", mode);
+
+    window.location.href = `/subscriptions/billing?${next.toString()}`;
   };
 
   return (
@@ -30,10 +67,16 @@ const TermsPage: React.FC = () => {
         >
           <h1 className="text-3xl font-semibold flex justify-center gap-3">
             <ShieldCheck className="text-emerald-400" size={32} />
-            Profit Sharing – Terms & Agreement
+            Terms & Agreement
           </h1>
           <p className="text-slate-400 mt-2 text-sm">
-            Please review and accept the terms before activating automated copy trading.
+            Please review and accept the terms before proceeding.
+          </p>
+
+          {/* Small context line */}
+          <p className="text-[11px] text-slate-500 mt-2">
+            Plan ID: <span className="text-slate-300 font-semibold">{planId}</span> • Mode:{" "}
+            <span className="text-slate-300 font-semibold">{mode}</span>
           </p>
         </motion.div>
 
@@ -48,60 +91,30 @@ const TermsPage: React.FC = () => {
           </div>
 
           <div className="space-y-5 text-sm leading-relaxed text-slate-300 h-[320px] overflow-y-auto pr-2">
-            <p>By enabling Copy Trading & automated execution, you acknowledge that:</p>
+            <p>By enabling automated execution, you acknowledge that:</p>
 
             <ul className="list-disc list-inside space-y-3 text-slate-400">
+              <li>Orders may be automatically executed based on strategy signals.</li>
+              <li>Past performance does not guarantee future returns.</li>
+              <li>You authorize the platform to place/modify/close orders on your behalf.</li>
               <li>
-                Orders will be automatically executed on your linked broker account
-                based on our master strategy signals.
+                Profit-sharing / fees (if applicable) apply as per the plan terms.
               </li>
-              <li>
-                Past performance does not guarantee future returns. Copy trading
-                involves market risk and capital loss is possible.
-              </li>
-              <li>
-                You authorize this platform to place, modify and close orders
-                on your behalf using the broker tokens you provide.
-              </li>
-              <li>
-                A <strong>20% profit-sharing fee</strong> is charged only on net realized
-                profits at the end of each profitable month.
-              </li>
-              <li>No fee is charged in a loss-making month.</li>
-              <li>
-                You remain fully responsible for deposits, withdrawals and any
-                manual trades you place on your broker account.
-              </li>
-              <li>
-                The platform does not offer guaranteed returns, fixed income, or
-                any kind of assured profit.
-              </li>
-              <li>
-                Broker access tokens are stored in encrypted form, and can be revoked
-                by you at any time.
-              </li>
-              <li>
-                Trading may be temporarily paused during extreme volatility,
-                connectivity issues or risk-protection events.
-              </li>
-              <li>
-                Changing your capital or interfering with positions may affect
-                risk and performance of the strategy.
-              </li>
+              <li>You remain responsible for deposits, withdrawals, and any manual trades.</li>
+              <li>No guaranteed returns or assured profit is provided.</li>
+              <li>Trading may be paused during volatility / connectivity / risk events.</li>
             </ul>
 
             <div className="flex items-start gap-3 p-4 bg-yellow-500/10 border border-yellow-600/30 rounded-xl">
               <AlertTriangle className="text-yellow-400 mt-1" size={20} />
               <p className="text-yellow-300 text-xs">
-                Copy Trading is a high-risk activity. Only trade with money you can
-                afford to lose. This is not investment advice or a guaranteed return
-                product.
+                Trading is risky. Only trade with money you can afford to lose.
+                This is not investment advice.
               </p>
             </div>
 
             <p className="text-slate-400 text-xs mt-2">
-              By proceeding, you confirm that you have read, understood and agree to all
-              the terms listed above.
+              By proceeding, you confirm that you have read and agreed to the terms.
             </p>
           </div>
 
@@ -129,7 +142,7 @@ const TermsPage: React.FC = () => {
             `}
           >
             <CheckCircle size={18} />
-            Accept & Continue to Billing
+            Accept & Continue
             <ArrowRight size={18} />
           </button>
         </motion.div>

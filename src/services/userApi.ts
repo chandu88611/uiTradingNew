@@ -24,12 +24,7 @@ export interface BillingDetailsPayload {
   // ✅ match backend keys
   panNumber?: string | null;
 
-  accountHolderName: string;
-  accountNumber: string;
-  ifscCode: string;
-
-  bankName: string;
-  branch?: string | null;
+ 
 
   addressLine1: string;
   addressLine2?: string | null;

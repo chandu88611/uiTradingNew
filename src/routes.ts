@@ -48,7 +48,7 @@ const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
 
 // USER SUBSCRIPTION PAGES
 const Subscriptions = lazy(
-  () => import("./pages/subscriptions/Subscriptions"),
+  () => import("./pages/subscriptions/SubscriptionWizardPage"),
 );
 const SubscriptionTerms = lazy(
   () => import("./pages/subscriptions/SubscriptionTerms"),
@@ -120,7 +120,7 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/user/conditions", element: Conditions },
 
   // subscriptions
-  { path: "/subscriptions", element: Subscriptions },
+  { path: "/pricing", element: Subscriptions },
   { path: "/subscriptions/terms", element: SubscriptionTerms },
   { path: "/subscriptions/billing", element: SubscriptionBilling },
   { path: "/subscriptions/success", element: SubscriptionSuccess },

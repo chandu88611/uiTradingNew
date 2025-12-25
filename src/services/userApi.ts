@@ -44,6 +44,18 @@ export interface GooglePayload {
   id_token: string;
 }
 
+export interface UpdateTradeStatusPayload {
+  allowTrade: boolean;
+}
+
+export interface TradeStatusResponse {
+  message: string;
+  data?: {
+    allowTrade?: boolean;
+  };
+}
+
+
 export interface LoginResponse {
   message: string;
   user?: User;
@@ -90,10 +102,18 @@ export const userApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ["User"],
     }),
+updateTradeStatus: builder.mutation<TradeStatusResponse, UpdateTradeStatusPayload>({
+  query: (body) => ({
+    url: "/user/trade-status",
+    method: "PUT",
+    body,
+  }),
+  invalidatesTags: ["User"],
+}),
 
     register: builder.mutation<LoginResponse, RegisterPayload>({
       query: (body) => ({
-        url: "/auth/register",
+        url: "/user/register",
         method: "POST",
         body,
       }),
@@ -164,7 +184,7 @@ export const userApi = baseApi.injectEndpoints({
     >({
       query: (body) => ({
         url: "/user/me",
-        method: "PATCH",
+        method: "GET",
         body,
       }),
       invalidatesTags: ["User"],
@@ -197,6 +217,8 @@ export const userApi = baseApi.injectEndpoints({
       providesTags: ["User"],
     }),
 
+    
+
     saveBillingDetails: builder.mutation<
       BillingDetailsResponse,
       BillingDetailsPayload
@@ -209,6 +231,10 @@ export const userApi = baseApi.injectEndpoints({
       invalidatesTags: ["User"],
     }),
   }),
+
+  
+
+  
 });
 
 // ----------------------
@@ -233,4 +259,5 @@ export const {
   // billing
   useGetBillingDetailsQuery,
   useSaveBillingDetailsMutation,
+  useUpdateTradeStatusMutation
 } = userApi;

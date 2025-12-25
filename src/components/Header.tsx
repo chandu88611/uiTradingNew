@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, Search, User2 } from "lucide-react";
+import { Menu, X, ChevronDown, Search, User2, LogIn } from "lucide-react";
+import { useMeQuery } from "../services/userApi";
 
 type NavItem = {
   label: string;
@@ -70,6 +71,23 @@ const Header: React.FC = () => {
     }`;
   }, [isScrolled]);
 
+  // ✅ SAME auth logic as Subscription page
+  const {
+    data: meRes,
+    isLoading: meLoading,
+    isFetching: meFetching,
+    isError: meError,
+  } = useMeQuery(undefined, { refetchOnMountOrArgChange: true } as any);
+
+  const me = (meRes as any)?.data ?? meRes;
+  const isAuthenticated = Boolean(me?.id || me?.user?.id);
+  const authReady = !(meLoading || meFetching);
+
+  // optional: avoid showing dropdown open when mobile menu closed
+  useEffect(() => {
+    if (!mobileOpen) setOpenDropdown(null);
+  }, [mobileOpen]);
+
   return (
     <header className={headerClass}>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:py-4">
@@ -79,12 +97,7 @@ const Header: React.FC = () => {
           onClick={closeAllMenus}
           className="flex items-center gap-2 rounded-xl bg-slate-900/70 px-2 py-1 md:bg-transparent md:px-0 md:py-0"
         >
-          <img
-            src="/logo.png"
-            alt="Logo"
-            className="h-7 w-auto md:h-8"
-          />
- 
+          <img src="/logo.png" alt="Logo" className="h-7 w-auto md:h-8" />
         </a>
 
         {/* Center: Desktop nav */}
@@ -172,22 +185,27 @@ const Header: React.FC = () => {
             <Search size={16} />
           </a>
 
-          {/* Account */}
-          <a
-            href="/profile"
-            className="hidden items-center gap-2 rounded-full border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-700 hover:bg-slate-800 md:inline-flex"
-          >
-            <User2 size={16} />
-            <span>Account</span>
-          </a>
-
-          {/* CTA */}
-          <a
-            href="/strategies"
-            className="hidden items-center justify-center rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-950 shadow-soft-glow transition hover:bg-emerald-400 md:inline-flex"
-          >
-            Start Copy Trading
-          </a>
+          {/* ✅ Account vs Sign in / Sign up (using /me auth) */}
+          {!authReady ? (
+            // Optional: show small skeleton while /me resolves (prevents flicker)
+            <div className="hidden h-9 w-28 rounded-full border border-slate-800 bg-slate-900/70 md:block animate-pulse" />
+          ) : isAuthenticated ? (
+            <a
+              href="/profile"
+              className="hidden items-center gap-2 rounded-full border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-700 hover:bg-slate-800 md:inline-flex"
+            >
+              <User2 size={16} />
+              <span>Account</span>
+            </a>
+          ) : (
+            <a
+              href="/sign-in"
+              className="hidden items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-950 transition hover:bg-emerald-400 md:inline-flex"
+            >
+              <LogIn size={16} />
+              <span>Sign in / Sign up</span>
+            </a>
+          )}
 
           {/* Mobile menu button */}
           <button
@@ -223,14 +241,30 @@ const Header: React.FC = () => {
                   <Search size={16} />
                   <span>Search</span>
                 </a>
-                <a
-                  href="/profile"
-                  onClick={closeAllMenus}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900/80 px-3 py-2 text-[13px] text-slate-100"
-                >
-                  <User2 size={16} />
-                  <span>Account</span>
-                </a>
+
+                {!authReady ? (
+                  <div className="flex flex-1 rounded-xl bg-slate-900/80 px-3 py-2 animate-pulse">
+                    <div className="h-4 w-24 bg-slate-800/80 rounded" />
+                  </div>
+                ) : isAuthenticated ? (
+                  <a
+                    href="/profile"
+                    onClick={closeAllMenus}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900/80 px-3 py-2 text-[13px] text-slate-100"
+                  >
+                    <User2 size={16} />
+                    <span>Account</span>
+                  </a>
+                ) : (
+                  <a
+                    href="/sig-in"
+                    onClick={closeAllMenus}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-[13px] font-semibold text-slate-950"
+                  >
+                    <LogIn size={16} />
+                    <span>Sign in</span>
+                  </a>
+                )}
               </div>
 
               {/* Links */}
@@ -242,9 +276,7 @@ const Header: React.FC = () => {
                         <button
                           type="button"
                           onClick={() =>
-                            setOpenDropdown((p) =>
-                              p === item.label ? null : item.label
-                            )
+                            setOpenDropdown((p) => (p === item.label ? null : item.label))
                           }
                           className="flex w-full items-center justify-between rounded-xl bg-slate-900/80 px-3 py-2.5 text-left text-[13px] text-slate-100"
                         >
@@ -310,6 +342,13 @@ const Header: React.FC = () => {
               >
                 Start Copy Trading
               </a>
+
+              {/* optional debug hint */}
+              {!meLoading && meError && (
+                <p className="mt-3 text-[11px] text-yellow-400">
+                  Auth check failed (/me). If you are logged in, ensure baseApi uses credentials: "include".
+                </p>
+              )}
             </div>
           </motion.div>
         )}

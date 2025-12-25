@@ -50,6 +50,9 @@ const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
 const Subscriptions = lazy(
   () => import("./pages/subscriptions/SubscriptionWizardPage"),
 );
+const TradingDashboard = lazy(
+  () => import("./pages/trading/BrokerDashboardPage"),
+);
 const SubscriptionTerms = lazy(
   () => import("./pages/subscriptions/SubscriptionTerms"),
 );
@@ -90,8 +93,7 @@ export const publicRoutes: AppRoute[] = [
 
   // marketing/landing version of copy-trading if you want it public
   { path: "/copy-trading", element: CopyTrading },
-  { path: "/subscriptions", element: Subscriptions },
-
+  { path: "/pricing", element: Subscriptions },
 
 ];
 
@@ -120,7 +122,6 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/user/conditions", element: Conditions },
 
   // subscriptions
-  { path: "/pricing", element: Subscriptions },
   { path: "/subscriptions/terms", element: SubscriptionTerms },
   { path: "/subscriptions/billing", element: SubscriptionBilling },
   { path: "/subscriptions/success", element: SubscriptionSuccess },
@@ -129,4 +130,7 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/subscriptions/invoices", element: SubscriptionInvoices },
   { path: "/subscriptions/invoices/:id", element: SubscriptionInvoiceDetail },
   { path: "/subscriptions/payment", element: SubscriptionPayment },
+  { path: "/trading/dashboard", element: TradingDashboard },
+
+  
 ];

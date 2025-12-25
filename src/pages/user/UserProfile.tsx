@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 import {
   User as UserIcon,
   Mail,
@@ -13,6 +12,10 @@ import {
   Settings2,
   Save,
   CandlestickChart,
+  RefreshCw,
+  Crown,
+  Zap,
+  Calendar,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Modal from "../../components/Model";
@@ -23,6 +26,7 @@ import {
   useGetBillingDetailsQuery,
   useSaveBillingDetailsMutation,
   useChangePasswordMutation,
+  useUpdateTradeStatusMutation,
 } from "../../services/userApi";
 
 import PineConnectorSettings, {
@@ -35,8 +39,8 @@ import CryptoDeltaSettings, {
   CryptoDeltaSettingsValue,
 } from "./CryptoDeltaSettings";
 
-// ✅ subscription current (webhook url)
 import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
+import CopyTradingSettings, { CopyTradingSettingsValue } from "./CopyTradingSettings";
 
 /** helpers */
 const inputBase =
@@ -45,12 +49,9 @@ const inputBase =
 const sectionBase = "rounded-2xl border border-slate-800 bg-slate-900/40 p-6";
 
 function pickUser(res: any) {
-  // supports: { user }, { data }, { message, data }
   return res?.user || res?.data || null;
 }
-
 function pickBilling(res: any) {
-  // supports: { data }, { message, data }
   return res?.data || null;
 }
 
@@ -58,13 +59,27 @@ type TradeSettings = {
   pineConnector?: PineConnectorSettingsValue;
   indianMarket?: IndianMarketSettingsValue;
   crypto?: CryptoDeltaSettingsValue;
+    copyTrading?: CopyTradingSettingsValue;
 };
 
+type TradingTabKey = "pine" | "india" | "crypto"| "copy";
+
+function clsx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
+
+function moneyINRFromCents(cents?: number | null) {
+  const n = Number(cents ?? 0);
+  if (!Number.isFinite(n)) return "—";
+  return `₹${(n / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
 export default function UserProfilePage() {
-  const [activeTab, setActiveTab] = useState<"profile" | "billing" | "trading">(
+  const [activeTab, setActiveTab] = useState<"profile" | "billing" | "trading"|"copy">(
     "profile"
   );
 
+ 
   // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [editBillingOpen, setEditBillingOpen] = useState(false);
@@ -85,7 +100,6 @@ export default function UserProfilePage() {
     refetch: refetchBilling,
   } = useGetBillingDetailsQuery();
 
-  // ✅ Current subscription (for webhook url)
   const {
     data: subRes,
     isLoading: subLoading,
@@ -96,14 +110,42 @@ export default function UserProfilePage() {
   const user = useMemo(() => pickUser(meRes), [meRes]);
   const billing = useMemo(() => pickBilling(billingRes), [billingRes]);
 
+  // ✅ Current subscription data format: { message, data: { ...subscription } }
   const mySub = (subRes as any)?.data ?? null;
+  const plan = mySub?.plan ?? null;
 
-  // If your backend returns plan relation:
-  const isPineUser = Boolean(mySub?.plan?.executionFlow === "PINE_CONNECTOR");
+  // ✅ Plan-based capabilities
+  const executionFlow: string | null = plan?.executionFlow ?? null;
 
-  // if backend returns webhookUrl computed in transformResponse
-  const webhookUrl: string | null =`https://backend.globalalgotrading.com/tradingview/alert/${mySub?.webhookToken}`;
- 
+  const canUsePine =
+    executionFlow === "PINE_CONNECTOR" || Boolean(plan?.featureFlags?.pineConnector);
+
+  const canUseRiskControls = Boolean(plan?.featureFlags?.riskControls);
+
+  // If later you add flags like indianMarket / cryptoDelta, hook them here
+  const canUseIndian = Boolean(plan?.featureFlags?.indianMarket);
+  const canUseCrypto = Boolean(plan?.featureFlags?.cryptoDelta);
+
+  // Default trading tab based on plan
+  const allowedTradingTabs: Array<{ key: TradingTabKey; label: string }> = useMemo(() => {
+    const tabs: Array<{ key: TradingTabKey; label: string }> = [];
+    if (canUsePine) tabs.push({ key: "pine", label: "Pine Connector" });
+    if (canUseIndian) tabs.push({ key: "india", label: "Indian Market" });
+    if (canUseCrypto) tabs.push({ key: "crypto", label: "Crypto (Delta)" });
+    return tabs;
+  }, [canUsePine, canUseIndian, canUseCrypto]);
+
+  const [tradingTab, setTradingTab] = useState<TradingTabKey>("pine");
+
+  // If plan changes and current tab is not allowed, auto-switch
+  useEffect(() => {
+    const allowedKeys = allowedTradingTabs.map((t) => t.key);
+    if (allowedKeys.length === 0) return;
+    if (!allowedKeys.includes(tradingTab)) {
+      setTradingTab(allowedKeys[0]);
+    }
+  }, [allowedTradingTabs, tradingTab]);
+
   // MUTATIONS
   const [updateMe, { isLoading: updatingMe }] = useUpdateMeMutation();
   const [saveBilling, { isLoading: savingBilling }] =
@@ -113,20 +155,40 @@ export default function UserProfilePage() {
 
   const loading = meLoading || meFetching;
 
-  const [tradingTab, setTradingTab] = useState<"pine" | "india" | "crypto">(
-    "pine"
-  );
-
   const tradeSettings: TradeSettings = user?.tradeSettings || {};
   const [localTradeSettings, setLocalTradeSettings] = useState<TradeSettings>(
     tradeSettings
   );
 
-  // Keep in sync when user changes
   useEffect(() => {
     setLocalTradeSettings(tradeSettings);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.tradeSettings]);
+
+  // ✅ Webhook URL must be shown only if token exists
+  const webhookToken: string | null = mySub?.webhookToken ?? null;
+  const webhookUrl: string | null = webhookToken
+    ? `https://backend.globalalgotrading.com/tradingview/alert/${webhookToken}`
+    : null;
+
+
+    const [updateTradeStatus, { isLoading: tradeStatusLoading }] =
+  useUpdateTradeStatusMutation();
+
+const serverAllowTrade: boolean = Boolean(
+  (mySub as any)?.allowTrade ?? (mySub as any)?.executionEnabled
+);
+
+const [allowTradeLocal, setAllowTradeLocal] = useState<boolean>(serverAllowTrade);
+
+useEffect(() => {
+  setAllowTradeLocal(serverAllowTrade);
+}, [serverAllowTrade]);
+
+
+const canUseCopyTrading = Boolean(
+  plan?.featureFlags?.tradeCopier || plan?.featureFlags?.copyTrading
+);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white pt-16 md:pt-28 px-4 md:px-6 pb-10">
@@ -159,6 +221,14 @@ export default function UserProfilePage() {
             icon={<CandlestickChart size={16} />}
             label="Trading"
           />
+
+          <TabButton
+  active={activeTab === "copy"}
+  onClick={() => setActiveTab("copy")}
+  icon={<Zap size={16} />}
+  label="Copy Trading"
+/>
+
           <div className="flex-1" />
           <button
             onClick={() => setChangePassOpen(true)}
@@ -231,7 +301,6 @@ export default function UserProfilePage() {
                   </div>
                 </section>
 
-                {/* SECURITY NOTE */}
                 <section className={sectionBase}>
                   <h2 className="text-xl font-semibold">Security</h2>
                   <p className="mt-2 text-sm text-slate-400">
@@ -242,78 +311,71 @@ export default function UserProfilePage() {
               </>
             )}
 
-            {/* BILLING TAB */}
-            {activeTab === "billing" && (
-              <>
-                <section className={sectionBase}>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <h2 className="text-xl font-semibold">Billing Details</h2>
-                      <p className="text-xs text-slate-400 mt-1">
-                        PAN is optional ✅. Add bank + address for
-                        invoices/withdrawals.
-                      </p>
-                    </div>
+      {/* BILLING TAB */}
+{activeTab === "billing" && (
+  <>
+    <section className={sectionBase}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold">Billing Details</h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Only PAN + address are required for invoices. Bank details are not collected ✅
+          </p>
+        </div>
 
-                    <button
-                      onClick={() => setEditBillingOpen(true)}
-                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-                    >
-                      <Pencil size={15} />
-                      Edit Billing
-                    </button>
-                  </div>
+        <button
+          onClick={() => setEditBillingOpen(true)}
+          className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+        >
+          <Pencil size={15} />
+          Edit Billing
+        </button>
+      </div>
 
-                  {billingLoading || billingFetching ? (
-                    <div className="mt-6 text-sm text-slate-400">
-                      Loading billing…
-                    </div>
-                  ) : (
-                    <div className="mt-6 grid gap-6 sm:grid-cols-2">
-                      <InfoRow
-                        label="PAN Number"
-                        value={billing?.panNumber || "—"}
-                        icon={<Hash />}
-                      />
-                      <InfoRow
-                        label="Account Holder"
-                        value={billing?.accountHolderName || "—"}
-                        icon={<UserIcon />}
-                      />
-                      <InfoRow
-                        label="Account Number"
-                        value={
-                          billing?.accountNumber
-                            ? maskAccount(billing.accountNumber)
-                            : "—"
-                        }
-                        icon={<CreditCard />}
-                      />
-                      <InfoRow
-                        label="IFSC Code"
-                        value={billing?.ifscCode || "—"}
-                        icon={<Building2 />}
-                      />
-                      <InfoRow
-                        label="Bank / Branch"
-                        value={`${billing?.bankName || "—"}${
-                          billing?.branch ? ` • ${billing.branch}` : ""
-                        }`}
-                        icon={<Building2 />}
-                      />
-                      <InfoRow
-                        label="Address"
-                        value={formatAddress(billing)}
-                        icon={<MapPin />}
-                      />
-                    </div>
-                  )}
-                </section>
-              </>
-            )}
+      {billingLoading || billingFetching ? (
+        <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
+      ) : (
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <InfoRow
+            label="PAN Number"
+            value={billing?.panNumber || "—"}
+            icon={<Hash />}
+          />
+
+       <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+  <div className="flex items-start gap-3">
+    <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+      <MapPin />
+    </div>
+
+    <div>
+      <p className="text-xs text-slate-400">Address</p>
+
+      {billing ? (
+        <div className="mt-1 space-y-1 text-sm text-slate-200">
+          <div>{billing.addressLine1}</div>
+          {billing.addressLine2 && <div>{billing.addressLine2}</div>}
+          <div>
+            {billing.city}, {billing.state}
+          </div>
+          <div className="font-medium">{billing.pincode}</div>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400">—</p>
+      )}
+    </div>
+  </div>
+</div>
+
+        </div>
+      )}
+    </section>
+  </>
+)}
+
 
             {/* TRADING TAB */}
-            {activeTab === "trading" && user && (
+            {activeTab === "trading" && (
               <section className={sectionBase}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
@@ -322,126 +384,188 @@ export default function UserProfilePage() {
                       Trading Settings
                     </h2>
                     <p className="text-xs text-slate-400 mt-1">
-                      Configure Pine Connector, Indian Market & Crypto (Delta
-                      Exchange).
+                      This section changes automatically based on your active plan.
                     </p>
                   </div>
 
-                  <button
-                    onClick={async () => {
-                      try {
-                        await updateMe({
-                          tradeSettings: localTradeSettings,
-                        } as any).unwrap();
-                        toast.success("Trading settings saved");
-                        refetchMe();
-                      } catch (err: any) {
-                        toast.error(
-                          err?.data?.message || "Failed to save trading settings"
-                        );
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-                  >
-                    <Save size={16} />
-                    Save Trading
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a href="/trading/dashboard">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
+                      >
+                        <CandlestickChart size={16} />
+                        Open Trading Workspace
+                      </button>
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await updateMe({
+                            tradeSettings: localTradeSettings,
+                          } as any).unwrap();
+                          toast.success("Trading settings saved");
+                          refetchMe();
+                        } catch (err: any) {
+                          toast.error(
+                            err?.data?.message || "Failed to save trading settings"
+                          );
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                    >
+                      <Save size={16} />
+                      Save Trading
+                    </button>
+                  </div>
                 </div>
 
-                {/* SUB TABS */}
+                {/* ✅ Current Plan Card */}
+                <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold flex items-center gap-2">
+                        <Crown size={16} className="text-yellow-300" />
+                        Current Plan
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Your trading features depend on this plan.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => refetchSub()}
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
+                    >
+                      <RefreshCw size={14} />
+                      {subLoading || subFetching ? "Refreshing..." : "Refresh"}
+                    </button>
+                  </div>
+
+                  {subLoading || subFetching ? (
+                    <div className="mt-4 text-sm text-slate-400">
+                      Loading subscription…
+                    </div>
+                  ) : !mySub ? (
+                    <div className="mt-4 text-sm text-slate-300">
+                      No active subscription found. Please subscribe to enable execution features.
+                    </div>
+                  ) : (
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <PlanPill
+                        icon={<Zap size={14} />}
+                        label="Plan"
+                        value={plan?.name || plan?.planCode || "—"}
+                      />
+                      <PlanPill
+                        icon={<Hash size={14} />}
+                        label="Category"
+                        value={plan?.category || "—"}
+                      />
+                      <PlanPill
+                        icon={<CreditCard size={14} />}
+                        label="Price"
+                        value={`${moneyINRFromCents(plan?.priceCents)} / ${plan?.interval || "—"}`}
+                      />
+                      <PlanPill
+                        icon={<ShieldCheck size={14} />}
+                        label="Execution"
+                        value={`${plan?.executionFlow || "—"} • ${mySub?.executionEnabled ? "Enabled" : "Disabled"}`}
+                      />
+                      <PlanPill
+                        icon={<Settings2 size={14} />}
+                        label="Max Accounts"
+                        value={String(plan?.maxConnectedAccounts ?? "—")}
+                      />
+                      <PlanPill
+                        icon={<Settings2 size={14} />}
+                        label="Max Strategies"
+                        value={String(plan?.maxActiveStrategies ?? "—")}
+                      />
+                      <PlanPill
+                        icon={<Settings2 size={14} />}
+                        label="Max Lot/Trade"
+                        value={String(plan?.maxLotPerTrade ?? "—")}
+                      />
+                      <PlanPill
+                        icon={<Calendar size={14} />}
+                        label="Valid Until"
+                        value={mySub?.endDate ? new Date(mySub.endDate).toLocaleString() : "—"}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* ✅ Trading sub-tabs only if allowed by plan */}
                 <div className="mt-6 flex flex-wrap gap-2">
-                  <SubTab
-                    active={tradingTab === "pine"}
-                    onClick={() => setTradingTab("pine")}
-                    label="Pine Connector"
-                  />
-                  <SubTab
-                    active={tradingTab === "india"}
-                    onClick={() => setTradingTab("india")}
-                    label="Indian Market"
-                  />
-                  <SubTab
-                    active={tradingTab === "crypto"}
-                    onClick={() => setTradingTab("crypto")}
-                    label="Crypto (Delta)"
-                  />
+                  {allowedTradingTabs.length === 0 ? (
+                    <div className="text-sm text-slate-300">
+                      Your plan has no trading settings enabled.
+                    </div>
+                  ) : (
+                    allowedTradingTabs.map((t) => (
+                      <SubTab
+                        key={t.key}
+                        active={tradingTab === t.key}
+                        onClick={() => setTradingTab(t.key)}
+                        label={t.label}
+                      />
+                    ))
+                  )}
                 </div>
 
                 <div className="mt-6">
-                  {/* ✅ PINE CONNECTOR + WEBHOOK URL */}
-                  {tradingTab === "pine" && (
+                  {/* ✅ PINE CONNECTOR */}
+                  {tradingTab === "pine" && canUsePine && (
                     <div className="space-y-6">
-                      {/* WEBHOOK URL CARD */}
+                      {/* Webhook Card */}
                       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
                         <div className="flex items-start justify-between gap-4 flex-wrap">
                           <div>
                             <p className="text-sm font-semibold flex items-center gap-2">
-                              <ShieldCheck
-                                size={16}
-                                className="text-emerald-400"
-                              />
+                              <ShieldCheck size={16} className="text-emerald-400" />
                               TradingView Webhook URL
                             </p>
                             <p className="text-xs text-slate-400 mt-1">
-                              Use this URL in TradingView alert → Webhook URL
-                              field.
+                              Paste this in TradingView Alert → Webhook URL.
                             </p>
                           </div>
 
                           <button
                             onClick={() => refetchSub()}
-                            className="rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
+                            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
                           >
-                            {subLoading || subFetching
-                              ? "Refreshing..."
-                              : "Refresh"}
+                            <RefreshCw size={14} />
+                            {subLoading || subFetching ? "Refreshing..." : "Refresh"}
                           </button>
                         </div>
 
                         <div className="mt-4">
-                          {subLoading || subFetching ? (
-                            <div className="text-sm text-slate-400">
-                              Loading subscription…
-                            </div>
-                          ) : !mySub ? (
+                          {!mySub ? (
                             <div className="text-sm text-slate-300">
-                              No active subscription found. Subscribe to a{" "}
-                              <span className="text-emerald-300 font-semibold">
-                                Pine Connector
-                              </span>{" "}
-                              plan to get your webhook URL.
+                              No active subscription found.
                             </div>
-                          ) : !isPineUser ? (
-                            <div className="text-sm text-slate-300">
-                              Your current plan is{" "}
-                              <span className="text-slate-100 font-semibold">
-                                {mySub?.plan?.name || "—"}
-                              </span>
-                              . Webhook URL is available only for{" "}
-                              <span className="text-emerald-300 font-semibold">
-                                Pine Connector
-                              </span>{" "}
-                              plans.
-                            </div>
-                          ) : !webhookUrl ? (
-                            <div className="text-sm text-slate-300">
-                              Webhook URL not generated yet. Please re-login or
-                              contact support.
+                          ) : !webhookToken ? (
+                            <div className="text-sm text-yellow-200">
+                              Your plan supports Pine Connector, but webhook token is not generated yet.
+                              <div className="mt-1 text-xs text-slate-400">
+                                If this is a new purchase, refresh after a few seconds. If it still stays null, backend should generate webhookToken for active subscriptions.
+                              </div>
                             </div>
                           ) : (
                             <div className="space-y-3">
                               <div className="flex items-center gap-2">
                                 <input
                                   readOnly
-                                  value={webhookUrl}
+                                  value={webhookUrl || ""}
                                   className={`${inputBase} !mt-0`}
                                 />
                                 <button
                                   onClick={async () => {
                                     try {
-                                      await navigator.clipboard.writeText(
-                                        webhookUrl
-                                      );
+                                      await navigator.clipboard.writeText(webhookUrl || "");
                                       toast.success("Webhook URL copied");
                                     } catch {
                                       toast.error("Failed to copy");
@@ -452,18 +576,15 @@ export default function UserProfilePage() {
                                   Copy
                                 </button>
                               </div>
-
                               <div className="text-[11px] text-slate-400">
-                                Tip: In TradingView alert, enable “Webhook URL”
-                                and paste this.
+                                Tip: TradingView alert must enable “Webhook URL” and “Send alert to webhook URL”.
                               </div>
                             </div>
                           )}
                         </div>
                       </div>
 
-                      {/* YOUR EXISTING SETTINGS */}
-                      <PineConnectorSettings
+                <PineConnectorSettings
                         value={localTradeSettings.pineConnector}
                         onChange={(next) =>
                           setLocalTradeSettings((p) => ({
@@ -471,11 +592,15 @@ export default function UserProfilePage() {
                             pineConnector: next,
                           }))
                         }
+                        allowTrade={allowTradeLocal}
+                        setAllowTrade={setAllowTradeLocal}
+                        onRefreshSubscription={refetchSub}
                       />
                     </div>
                   )}
 
-                  {tradingTab === "india" && (
+                  {/* INDIA */}
+                  {tradingTab === "india" && canUseIndian && (
                     <IndianMarketSettings
                       value={localTradeSettings.indianMarket}
                       onChange={(next) =>
@@ -487,7 +612,8 @@ export default function UserProfilePage() {
                     />
                   )}
 
-                  {tradingTab === "crypto" && (
+                  {/* CRYPTO */}
+                  {tradingTab === "crypto" && canUseCrypto && (
                     <CryptoDeltaSettings
                       value={localTradeSettings.crypto}
                       onChange={(next) =>
@@ -496,15 +622,83 @@ export default function UserProfilePage() {
                     />
                   )}
                 </div>
+
+                {/* Small note */}
+                <p className="mt-6 text-[11px] text-slate-500">
+                  Note: Since your plan is <span className="text-slate-200 font-semibold">{plan?.name || plan?.planCode}</span>,
+                  only the supported settings are shown.
+                </p>
               </section>
             )}
+
+            {/* COPY TRADING TAB */}
+{activeTab === "copy" && (
+  <section className={sectionBase}>
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Zap size={18} />
+          Copy Trading Settings
+        </h2>
+        <p className="text-xs text-slate-400 mt-1">
+          Configure copy trading based on your preferred market (Forex / Indian).
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await updateMe({
+              tradeSettings: localTradeSettings,
+            } as any).unwrap();
+            toast.success("Copy trading settings saved");
+            refetchMe();
+          } catch (err: any) {
+            toast.error(err?.data?.message || "Failed to save copy trading settings");
+          }
+        }}
+        className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+      >
+        <Save size={16} />
+        Save Copy Trading
+      </button>
+    </div>
+
+    {/* Plan Gate */}
+    {!mySub ? (
+      <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
+        No active subscription found. Please subscribe to enable copy trading.
+      </div>
+    ) : canUseCopyTrading ? (
+      <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
+        Your current plan does not include <span className="text-slate-100 font-semibold">Copy Trading</span>.
+      </div>
+    ) : (
+      <div className="mt-6">
+        <CopyTradingSettings
+          value={localTradeSettings.copyTrading}
+          onChange={(next) =>
+            setLocalTradeSettings((p) => ({
+              ...p,
+              copyTrading: next,
+            }))
+          }
+        />
+      </div>
+    )}
+
+    <p className="mt-6 text-[11px] text-slate-500">
+      Tip: For Forex choose MT5/cTrader and store credentials per account. For Indian market store token per account.
+    </p>
+  </section>
+)}
+
           </>
         )}
       </div>
 
       {/* MODALS */}
-
-      {/* EDIT PROFILE */}
       <Modal open={editProfileOpen} onClose={() => setEditProfileOpen(false)}>
         <ProfileEditForm
           user={user}
@@ -523,7 +717,6 @@ export default function UserProfilePage() {
         />
       </Modal>
 
-      {/* EDIT BILLING */}
       <Modal open={editBillingOpen} onClose={() => setEditBillingOpen(false)}>
         <BillingEditForm
           billing={billing}
@@ -542,7 +735,6 @@ export default function UserProfilePage() {
         />
       </Modal>
 
-      {/* CHANGE PASSWORD */}
       <Modal open={changePassOpen} onClose={() => setChangePassOpen(false)}>
         <ChangePasswordForm
           loading={changingPass}
@@ -590,6 +782,30 @@ function TabButton({
   );
 }
 
+function SubTab({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
+        active
+          ? "bg-slate-100 text-slate-950 border-slate-100"
+          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+      }`}
+    >
+      <Settings2 size={16} />
+      {label}
+    </button>
+  );
+}
+
 function InfoRow({
   label,
   value,
@@ -604,6 +820,28 @@ function InfoRow({
       <div className="min-w-0">
         <p className="text-xs text-slate-400">{label}</p>
         <p className={`text-sm font-medium truncate ${valueClass}`}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function PlanPill({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+      <div className="h-9 w-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[11px] text-slate-400">{label}</p>
+        <p className="text-sm font-semibold text-slate-100 truncate">{value}</p>
       </div>
     </div>
   );
@@ -630,7 +868,7 @@ function ProfileSkeleton() {
   );
 }
 
-/* ---------------- Forms ---------------- */
+/* ---------------- Forms (same as your current) ---------------- */
 
 function ProfileEditForm({
   user,
@@ -746,7 +984,7 @@ function BillingEditForm({
           />
         </Field>
 
-        <Field label="Account Holder Name">
+        {/* <Field label="Account Holder Name">
           <input
             value={form.accountHolderName}
             onChange={(e) => set("accountHolderName", e.target.value)}
@@ -789,7 +1027,7 @@ function BillingEditForm({
             className={inputBase}
             placeholder="Branch name"
           />
-        </Field>
+        </Field> */}
       </div>
 
       <div className="mt-6">
@@ -964,8 +1202,6 @@ function FooterActions({
   );
 }
 
-/* ---------------- Formatting helpers ---------------- */
-
 function maskAccount(n: string) {
   const s = String(n);
   if (s.length <= 4) return s;
@@ -987,28 +1223,4 @@ function normalizeEmptyToNull(obj: Record<string, any>) {
     out[k] = typeof v === "string" && v.trim() === "" ? null : v;
   });
   return out;
-}
-
-function SubTab({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
-        active
-          ? "bg-slate-100 text-slate-950 border-slate-100"
-          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-      }`}
-    >
-      <Settings2 size={16} />
-      {label}
-    </button>
-  );
 }

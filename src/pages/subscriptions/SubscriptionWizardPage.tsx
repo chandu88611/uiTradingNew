@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Banknote,
   BarChart3,
   Brain,
   CheckCircle,
@@ -23,7 +22,9 @@ import {
 } from "lucide-react";
 
 import SubscriptionStepper, { type FlowStep } from "./SubscriptionStepper";
-import AuthModal from "../auth/AuthModel";
+
+// ✅ IMPORTANT: Ensure this path matches your file name.
+// If your file is AuthModel.tsx then use "../auth/AuthModel"
 
 import { useMeQuery } from "../../services/userApi";
 import {
@@ -40,10 +41,10 @@ import {
   useGetPlanByIdQuery,
   useSubscribeToPlanMutation,
 } from "../../services/profileSubscription.api";
+import AuthModal from "../auth/AuthModel";
 
 /**
  * ✅ Single-page wizard
- * - no /subscriptions/terms or /billing or /payment routes needed
  * - sessionStorage persists progress so user resumes where left
  */
 
@@ -128,9 +129,8 @@ const loadFlow = (): FlowState => {
     const raw = sessionStorage.getItem(FLOW_KEY);
     if (!raw) return { step: 1 };
     const parsed = JSON.parse(raw) as Partial<FlowState>;
-
     return {
-      step: parsed.step ?? 1,
+      step: (parsed.step ?? 1) as FlowStep,
       planId: parsed.planId,
       mode: parsed.mode,
       termsAccepted: parsed.termsAccepted,
@@ -146,32 +146,33 @@ const saveFlow = (flow: FlowState) => {
   sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
 };
 
-const canEnterStep = (flow: FlowState, desired: FlowStep) => {
-  if (desired === 1) return true;
+/**
+ * ✅ Max step user is allowed to ENTER (forward)
+ * - BUT user can always go BACK to earlier steps.
+ */
+const getMaxAllowedStep = (flow: FlowState): FlowStep => {
+  // Step 5 is a terminal "done" state — allow it if already reached
+  if (flow.step === 5) return 5;
 
-  // step 2 requires plan
-  if (desired >= 2) {
-    if (!flow.planId || !flow.mode) return false;
-  }
+  const hasPlan = Boolean(flow.planId && flow.mode);
+  const hasTerms = Boolean(flow.termsAccepted);
+  const hasBilling = Boolean(flow.billingDone);
 
-  // step 3 requires terms accepted
-  if (desired >= 3) {
-    if (!flow.termsAccepted) return false;
-  }
-
-  // step 4 requires billing done (or you can relax this if you want)
-  if (desired >= 4) {
-    if (!flow.billingDone) return false;
-  }
-
-  return true;
+  if (!hasPlan) return 1;
+  if (!hasTerms) return 2;
+  if (!hasBilling) return 3;
+  return 4;
 };
 
-const normalizeStep = (flow: FlowState): FlowStep => {
-  if (!flow.planId || !flow.mode) return 1;
-  if (!flow.termsAccepted) return 2;
-  if (!flow.billingDone) return 3;
-  return flow.step >= 4 ? flow.step : 4;
+/**
+ * ✅ Clamp only if user is on an ILLEGAL forward step.
+ * - DOES NOT force user forward (so Back works)
+ */
+const clampStepIfIllegalForward = (flow: FlowState): FlowStep => {
+  const maxAllowed = getMaxAllowedStep(flow);
+  if (flow.step > maxAllowed) return maxAllowed;
+  if (flow.step < 1) return 1;
+  return flow.step;
 };
 
 type BillingFormState = {
@@ -192,30 +193,48 @@ const initialBillingForm: BillingFormState = {
   pincode: "",
 };
 
+type PendingAfterAuth = "CONTINUE_FROM_PLAN" | null;
+
 const SubscriptionWizardPage: React.FC = () => {
   // ✅ flow state + persist
   const [flow, setFlow] = useState<FlowState>(() => loadFlow());
 
+  /**
+   * ✅ Persist + clamp illegal forward steps ONLY
+   * (so back button won't get overridden)
+   */
   useEffect(() => {
-    // normalize step if user refreshes mid-way / storage corrupted
-    const normalized: FlowState = { ...flow, step: normalizeStep(flow) };
-    if (normalized.step !== flow.step) {
-      setFlow(normalized);
-      saveFlow(normalized);
+    const clamped = clampStepIfIllegalForward(flow);
+    if (clamped !== flow.step) {
+      const next = { ...flow, step: clamped };
+      setFlow(next);
+      saveFlow(next);
       return;
     }
     saveFlow(flow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flow.step, flow.planId, flow.mode, flow.termsAccepted, flow.billingDone, flow.acceptedAt]);
 
+  /**
+   * ✅ setStep:
+   * - Always allow going backward
+   * - Allow going forward only up to maxAllowed
+   */
   const setStep = (next: FlowStep) => {
-    // prevent jumping forward illegally
-    if (!canEnterStep(flow, next)) {
-      const safe = normalizeStep(flow);
-      setFlow((p) => ({ ...p, step: safe }));
+    // allow going back always
+    if (next < flow.step) {
+      setFlow((p) => ({ ...p, step: next }));
       return;
     }
-    setFlow((p) => ({ ...p, step: next }));
+
+    const maxAllowed = getMaxAllowedStep(flow);
+    if (next <= maxAllowed) {
+      setFlow((p) => ({ ...p, step: next }));
+      return;
+    }
+
+    // if user tries to jump forward illegally, clamp to maxAllowed
+    setFlow((p) => ({ ...p, step: maxAllowed }));
   };
 
   // ✅ auth
@@ -224,6 +243,7 @@ const SubscriptionWizardPage: React.FC = () => {
     isLoading: meLoading,
     isFetching: meFetching,
     isError: meError,
+    refetch: refetchMe,
   } = useMeQuery(undefined, { refetchOnMountOrArgChange: true } as any);
 
   const me = (meRes as any)?.data ?? meRes;
@@ -231,8 +251,9 @@ const SubscriptionWizardPage: React.FC = () => {
   const isAuthenticated = Boolean(userId);
   const authReady = !(meLoading || meFetching);
 
-  // ✅ auth modal
+  // ✅ auth modal + resume state
   const [authOpen, setAuthOpen] = useState(false);
+  const [pendingAfterAuth, setPendingAfterAuth] = useState<PendingAfterAuth>(null);
 
   // ✅ Plans list
   const [mode, setMode] = useState<Mode>(flow.mode ?? "copy");
@@ -293,9 +314,6 @@ const SubscriptionWizardPage: React.FC = () => {
       state: existing.state ?? "",
       pincode: existing.pincode ?? "",
     });
-
-    // If already present, you may auto mark billingDone true (optional)
-    // but safer: only set billingDone when user saves in this flow.
   }, [billingRes]);
 
   // ✅ Payment: fetch plan by selected planId
@@ -314,7 +332,6 @@ const SubscriptionWizardPage: React.FC = () => {
   const [termsChecked, setTermsChecked] = useState(Boolean(flow.termsAccepted));
 
   useEffect(() => {
-    // keep checkbox in sync if flow restored
     setTermsChecked(Boolean(flow.termsAccepted));
   }, [flow.termsAccepted]);
 
@@ -361,7 +378,7 @@ const SubscriptionWizardPage: React.FC = () => {
             ...prev,
             planId: p.id,
             mode: type,
-            // if plan changes, reset later steps
+            // reset later steps on plan change
             termsAccepted: false,
             acceptedAt: undefined,
             billingDone: false,
@@ -433,13 +450,14 @@ const SubscriptionWizardPage: React.FC = () => {
     );
   };
 
-  // ✅ step actions
+  // ✅ Step 1 Continue: show modal if not logged-in, else go to terms
   const handleContinueFromPlan = () => {
     if (!flow.planId || !flow.mode) return;
 
     if (!authReady) return;
 
     if (!isAuthenticated) {
+      setPendingAfterAuth("CONTINUE_FROM_PLAN");
       setAuthOpen(true);
       return;
     }
@@ -447,9 +465,20 @@ const SubscriptionWizardPage: React.FC = () => {
     setStep(2);
   };
 
-  const onAuthed = () => {
-    // after auth success, move forward if plan already selected
-    if (flow.planId && flow.mode) setStep(2);
+  // ✅ after login/register success from modal
+  const onAuthed = async () => {
+    setAuthOpen(false);
+
+    try {
+      await refetchMe();
+    } catch {
+      // ignore
+    }
+
+    if (pendingAfterAuth === "CONTINUE_FROM_PLAN") {
+      setPendingAfterAuth(null);
+      if (flow.planId && flow.mode) setStep(2);
+    }
   };
 
   const handleAcceptTerms = () => {
@@ -510,8 +539,7 @@ const SubscriptionWizardPage: React.FC = () => {
 
     try {
       setSubmitting(true);
-console.log(flow.planId)
-      // ✅ today: no gateway, directly activate
+
       await subscribeToPlan({
         planId: flow.planId,
         trialDays: undefined,
@@ -534,6 +562,8 @@ console.log(flow.planId)
     setTermsChecked(false);
     setBillingTouched({} as any);
     setBillingForm(initialBillingForm);
+    setPendingAfterAuth(null);
+    setAuthOpen(false);
   };
 
   const step = flow.step;
@@ -553,7 +583,10 @@ console.log(flow.planId)
     <>
       <AuthModal
         open={authOpen}
-        onClose={() => setAuthOpen(false)}
+        onClose={() => {
+          setAuthOpen(false);
+          setPendingAfterAuth(null);
+        }}
         onAuthed={onAuthed}
         defaultTab="login"
       />
@@ -584,7 +617,7 @@ console.log(flow.planId)
             <SubscriptionStepper currentStep={step} />
           </div>
 
-          {/* Back button */}
+          {/* ✅ Back button fixed */}
           {step > 1 && step < 5 && (
             <div className="max-w-5xl mx-auto mb-6">
               <button
@@ -1270,7 +1303,6 @@ console.log(flow.planId)
                   </button>
                   <button
                     onClick={() => {
-                      // optional: clear flow after success
                       sessionStorage.removeItem(FLOW_KEY);
                       window.location.href = "/dashboard";
                     }}

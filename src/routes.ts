@@ -92,7 +92,6 @@ export const publicRoutes: AppRoute[] = [
   { path: "/reset-password", element: ResetPassowrd },
 
   // marketing/landing version of copy-trading if you want it public
-  { path: "/copy-trading", element: CopyTrading },
   { path: "/pricing", element: Subscriptions },
 
 ];
@@ -132,5 +131,6 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/subscriptions/payment", element: SubscriptionPayment },
   { path: "/trading/dashboard", element: TradingDashboard },
 
+  { path: "/copy-trading", element: CopyTrading },
   
 ];

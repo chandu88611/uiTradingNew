@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
-  Brain,
   CheckCircle,
   Clock,
   CreditCard,
@@ -22,10 +21,6 @@ import {
 } from "lucide-react";
 
 import SubscriptionStepper, { type FlowStep } from "./SubscriptionStepper";
-
-// ✅ IMPORTANT: Ensure this path matches your file name.
-// If your file is AuthModel.tsx then use "../auth/AuthModel"
-
 import { useMeQuery } from "../../services/userApi";
 import {
   useGetBillingDetailsQuery,
@@ -41,14 +36,16 @@ import {
   useGetPlanByIdQuery,
   useSubscribeToPlanMutation,
 } from "../../services/profileSubscription.api";
+
 import AuthModal from "../auth/AuthModel";
 
 /**
  * ✅ Single-page wizard
  * - sessionStorage persists progress so user resumes where left
+ * - UI DOES NOT mention internal execution technology
  */
 
-type Mode = "strategies" | "copy" | "both";
+type Mode = "forex" | "india" | "crypto" | "copy" | "bundle";
 
 type FlowState = {
   step: FlowStep;
@@ -90,21 +87,22 @@ const getBadge = (p: SubscriptionPlan) => {
 };
 
 const pickHighlights = (p: SubscriptionPlan) => {
-  const ff = p.featureFlags || {};
+  const ff: any = (p.featureFlags || {}) as any;
   const highlights: string[] = [];
 
-  if (ff.webhookAccess) highlights.push("Webhook access");
-  if (ff.tradeCopier) highlights.push("Trade copier");
+  // Keep these user-facing and non-technical
+  if (ff.webhookAccess) highlights.push("Automation signals");
+  if (ff.tradeCopier) highlights.push("Copy trading");
   if (ff.advancedRisk) highlights.push("Advanced risk controls");
-  if (ff.priorityExecution) highlights.push("Priority execution");
-  if (ff.vpsIncluded) highlights.push("VPS included");
+  if (ff.priorityExecution) highlights.push("Priority processing");
+  if (ff.vpsIncluded) highlights.push("Dedicated VPS");
   if (ff.paperTrading) highlights.push("Paper trading");
 
   highlights.push(`${p.maxActiveStrategies} strategies`);
   highlights.push(`${p.maxConnectedAccounts} accounts`);
 
   if (p.maxDailyTrades != null) highlights.push(`${p.maxDailyTrades} daily trades`);
-  if (p.maxLotPerTrade) highlights.push(`Max lot: ${p.maxLotPerTrade}`);
+  if ((p as any).maxLotPerTrade) highlights.push(`Max lot: ${(p as any).maxLotPerTrade}`);
 
   return highlights.slice(0, 6);
 };
@@ -112,16 +110,50 @@ const pickHighlights = (p: SubscriptionPlan) => {
 const sortByTier = (a: SubscriptionPlan, b: SubscriptionPlan) => {
   const tierRank: Record<string, number> = {
     starter: 1,
-    basic: 1,
-    standard: 2,
-    pro: 3,
-    premium: 4,
-    elite: 5,
-    lifetime: 6,
+    basic: 2,
+    standard: 3,
+    pro: 4,
+    premium: 5,
+    elite: 6,
+    lifetime: 7,
   };
   const ta = String((a.metadata as any)?.tier || "");
   const tb = String((b.metadata as any)?.tier || "");
   return (tierRank[ta] || 99) - (tierRank[tb] || 99);
+};
+
+const modeLabel = (m?: Mode) => {
+  switch (m) {
+    case "forex":
+      return "Forex Plans";
+    case "india":
+      return "India Market Plans";
+    case "crypto":
+      return "Crypto Market Plans";
+    case "copy":
+      return "Copy Trading Plans";
+    case "bundle":
+      return "Bundle Plans";
+    default:
+      return "—";
+  }
+};
+
+const modeDesc = (m?: Mode) => {
+  switch (m) {
+    case "forex":
+      return "Automated forex trading with risk controls and performance tracking.";
+    case "india":
+      return "Plans designed for Indian market automation and account management.";
+    case "crypto":
+      return "Plans designed for crypto automation with faster execution and analytics.";
+    case "copy":
+      return "Follow a master and mirror trades with configurable risk settings.";
+    case "bundle":
+      return "All-in-one plans that combine multiple products and limits.";
+    default:
+      return "";
+  }
 };
 
 const loadFlow = (): FlowState => {
@@ -146,12 +178,7 @@ const saveFlow = (flow: FlowState) => {
   sessionStorage.setItem(FLOW_KEY, JSON.stringify(flow));
 };
 
-/**
- * ✅ Max step user is allowed to ENTER (forward)
- * - BUT user can always go BACK to earlier steps.
- */
 const getMaxAllowedStep = (flow: FlowState): FlowStep => {
-  // Step 5 is a terminal "done" state — allow it if already reached
   if (flow.step === 5) return 5;
 
   const hasPlan = Boolean(flow.planId && flow.mode);
@@ -164,10 +191,6 @@ const getMaxAllowedStep = (flow: FlowState): FlowStep => {
   return 4;
 };
 
-/**
- * ✅ Clamp only if user is on an ILLEGAL forward step.
- * - DOES NOT force user forward (so Back works)
- */
 const clampStepIfIllegalForward = (flow: FlowState): FlowStep => {
   const maxAllowed = getMaxAllowedStep(flow);
   if (flow.step > maxAllowed) return maxAllowed;
@@ -196,13 +219,8 @@ const initialBillingForm: BillingFormState = {
 type PendingAfterAuth = "CONTINUE_FROM_PLAN" | null;
 
 const SubscriptionWizardPage: React.FC = () => {
-  // ✅ flow state + persist
   const [flow, setFlow] = useState<FlowState>(() => loadFlow());
 
-  /**
-   * ✅ Persist + clamp illegal forward steps ONLY
-   * (so back button won't get overridden)
-   */
   useEffect(() => {
     const clamped = clampStepIfIllegalForward(flow);
     if (clamped !== flow.step) {
@@ -215,13 +233,7 @@ const SubscriptionWizardPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flow.step, flow.planId, flow.mode, flow.termsAccepted, flow.billingDone, flow.acceptedAt]);
 
-  /**
-   * ✅ setStep:
-   * - Always allow going backward
-   * - Allow going forward only up to maxAllowed
-   */
   const setStep = (next: FlowStep) => {
-    // allow going back always
     if (next < flow.step) {
       setFlow((p) => ({ ...p, step: next }));
       return;
@@ -233,7 +245,6 @@ const SubscriptionWizardPage: React.FC = () => {
       return;
     }
 
-    // if user tries to jump forward illegally, clamp to maxAllowed
     setFlow((p) => ({ ...p, step: maxAllowed }));
   };
 
@@ -251,12 +262,11 @@ const SubscriptionWizardPage: React.FC = () => {
   const isAuthenticated = Boolean(userId);
   const authReady = !(meLoading || meFetching);
 
-  // ✅ auth modal + resume state
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingAfterAuth, setPendingAfterAuth] = useState<PendingAfterAuth>(null);
 
   // ✅ Plans list
-  const [mode, setMode] = useState<Mode>(flow.mode ?? "copy");
+  const [mode, setMode] = useState<Mode>(flow.mode ?? "forex");
   const [search, setSearch] = useState("");
 
   const { data: plansRes, isLoading: plansLoading, isFetching: plansFetching } =
@@ -278,30 +288,52 @@ const SubscriptionWizardPage: React.FC = () => {
     });
   }, [allPlans, search]);
 
-  const apiPlans = useMemo(
-    () => filteredPlans.filter((p) => p.executionFlow === "API").sort(sortByTier),
+  const safeFF = (p: SubscriptionPlan) => (p.featureFlags || {}) as any;
+
+  // ✅ Tabs (no tech wording, only business grouping)
+  const bundlePlans = useMemo(
+    () => filteredPlans.filter((p) => Boolean(safeFF(p)?.bundle)).sort(sortByTier),
     [filteredPlans]
   );
 
-  const pinePlans = useMemo(
+  const copyPlans = useMemo(
+    () => filteredPlans.filter((p) => Boolean(safeFF(p)?.tradeCopier)).sort(sortByTier),
+    [filteredPlans]
+  );
+
+  const forexPlans = useMemo(
     () =>
-      filteredPlans.filter((p) => p.executionFlow === "PINE_CONNECTOR").sort(sortByTier),
+      filteredPlans
+        .filter((p) => p.category === "FOREX" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
+        .sort(sortByTier),
     [filteredPlans]
   );
 
-  // ✅ Billing API
-  const { data: billingRes, isLoading: loadingBilling } =
-    useGetBillingDetailsQuery();
+  const indiaPlans = useMemo(
+    () =>
+      filteredPlans
+        .filter((p) => p.category === "INDIA" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
+        .sort(sortByTier),
+    [filteredPlans]
+  );
 
-  const [saveBilling, { isLoading: savingBilling }] =
-    useSaveBillingDetailsMutation();
+  const cryptoPlans = useMemo(
+    () =>
+      filteredPlans
+        .filter((p) => p.category === "CRYPTO" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
+        .sort(sortByTier),
+    [filteredPlans]
+  );
+
+  // ✅ Billing
+  const { data: billingRes, isLoading: loadingBilling } = useGetBillingDetailsQuery();
+  const [saveBilling, { isLoading: savingBilling }] = useSaveBillingDetailsMutation();
 
   const [billingForm, setBillingForm] = useState<BillingFormState>(initialBillingForm);
   const [billingTouched, setBillingTouched] = useState<Record<keyof BillingFormState, boolean>>(
     {} as any
   );
 
-  // Prefill billing form once data loads
   useEffect(() => {
     const existing = (billingRes as any)?.data;
     if (!existing) return;
@@ -316,9 +348,8 @@ const SubscriptionWizardPage: React.FC = () => {
     });
   }, [billingRes]);
 
-  // ✅ Payment: fetch plan by selected planId
+  // ✅ Payment: selected plan details
   const selectedPlanId = Number(flow.planId || 0);
-
   const { data: planRes, isLoading: planLoading } = useGetPlanByIdQuery(selectedPlanId, {
     skip: !selectedPlanId,
   } as any);
@@ -328,9 +359,8 @@ const SubscriptionWizardPage: React.FC = () => {
   const [subscribeToPlan] = useSubscribeToPlanMutation();
   const [submitting, setSubmitting] = useState(false);
 
-  // ✅ Terms checkbox
+  // ✅ Terms
   const [termsChecked, setTermsChecked] = useState(Boolean(flow.termsAccepted));
-
   useEffect(() => {
     setTermsChecked(Boolean(flow.termsAccepted));
   }, [flow.termsAccepted]);
@@ -352,16 +382,15 @@ const SubscriptionWizardPage: React.FC = () => {
     return { panOk, pinOk, requiredOk };
   }, [billingForm]);
 
-  const canSaveBilling = billingValidators.requiredOk && billingValidators.pinOk && billingValidators.panOk;
+  const canSaveBilling =
+    billingValidators.requiredOk && billingValidators.pinOk && billingValidators.panOk;
 
   // ✅ Pricing
   const gstPct = 18;
   const priceCents = Number(selectedPlan?.priceCents || 0);
-
   const gstCents = useMemo(() => Math.round((priceCents * gstPct) / 100), [priceCents]);
   const totalCents = priceCents + gstCents;
 
-  // ✅ Plan selection card
   const renderPlanCard = (p: SubscriptionPlan, type: Mode) => {
     const selected = flow.planId === p.id && flow.mode === type;
     const badge = getBadge(p);
@@ -378,7 +407,6 @@ const SubscriptionWizardPage: React.FC = () => {
             ...prev,
             planId: p.id,
             mode: type,
-            // reset later steps on plan change
             termsAccepted: false,
             acceptedAt: undefined,
             billingDone: false,
@@ -450,10 +478,8 @@ const SubscriptionWizardPage: React.FC = () => {
     );
   };
 
-  // ✅ Step 1 Continue: show modal if not logged-in, else go to terms
   const handleContinueFromPlan = () => {
     if (!flow.planId || !flow.mode) return;
-
     if (!authReady) return;
 
     if (!isAuthenticated) {
@@ -465,7 +491,6 @@ const SubscriptionWizardPage: React.FC = () => {
     setStep(2);
   };
 
-  // ✅ after login/register success from modal
   const onAuthed = async () => {
     setAuthOpen(false);
 
@@ -557,7 +582,7 @@ const SubscriptionWizardPage: React.FC = () => {
   const resetFlow = () => {
     sessionStorage.removeItem(FLOW_KEY);
     setFlow({ step: 1 });
-    setMode("copy");
+    setMode("forex");
     setSearch("");
     setTermsChecked(false);
     setBillingTouched({} as any);
@@ -567,7 +592,6 @@ const SubscriptionWizardPage: React.FC = () => {
   };
 
   const step = flow.step;
-
   const showPlanStep = step === 1;
   const showTermsStep = step === 2;
   const showBillingStep = step === 3;
@@ -617,7 +641,7 @@ const SubscriptionWizardPage: React.FC = () => {
             <SubscriptionStepper currentStep={step} />
           </div>
 
-          {/* ✅ Back button fixed */}
+          {/* Back button */}
           {step > 1 && step < 5 && (
             <div className="max-w-5xl mx-auto mb-6">
               <button
@@ -638,18 +662,41 @@ const SubscriptionWizardPage: React.FC = () => {
               <div className="max-w-3xl mx-auto mb-10 bg-slate-900/70 border border-slate-800 rounded-2xl p-4 space-y-4">
                 <div>
                   <p className="text-xs font-semibold text-slate-400 uppercase mb-2">
-                    Step 1 · Select your product
+                    Step 1 · Select your plan
                   </p>
+
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => setMode("strategies")}
+                      onClick={() => setMode("forex")}
                       className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
-                        mode === "strategies"
+                        mode === "forex"
                           ? "bg-emerald-500 text-slate-900 border-emerald-500"
                           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
                       }`}
                     >
-                      API Plans
+                      Forex
+                    </button>
+
+                    <button
+                      onClick={() => setMode("india")}
+                      className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
+                        mode === "india"
+                          ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+                      }`}
+                    >
+                      India
+                    </button>
+
+                    <button
+                      onClick={() => setMode("crypto")}
+                      className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
+                        mode === "crypto"
+                          ? "bg-emerald-500 text-slate-900 border-emerald-500"
+                          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+                      }`}
+                    >
+                      Crypto
                     </button>
 
                     <button
@@ -660,13 +707,13 @@ const SubscriptionWizardPage: React.FC = () => {
                           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
                       }`}
                     >
-                      Pine Connector
+                      Copy Trading
                     </button>
 
                     <button
-                      onClick={() => setMode("both")}
+                      onClick={() => setMode("bundle")}
                       className={`px-4 py-2 rounded-full text-xs font-medium border transition ${
-                        mode === "both"
+                        mode === "bundle"
                           ? "bg-emerald-500 text-slate-900 border-emerald-500"
                           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
                       }`}
@@ -699,103 +746,100 @@ const SubscriptionWizardPage: React.FC = () => {
               <div className="flex flex-wrap justify-center gap-10 mb-10 opacity-80">
                 <div className="flex flex-col items-center text-slate-400 text-xs">
                   <TrendingUp size={32} />
-                  <span className="mt-1">Smart Execution</span>
+                  <span className="mt-1">Performance</span>
                 </div>
                 <div className="flex flex-col items-center text-slate-400 text-xs">
                   <Zap size={32} />
-                  <span className="mt-1">Fast Signals</span>
+                  <span className="mt-1">Fast Execution</span>
                 </div>
                 <div className="flex flex-col items-center text-slate-400 text-xs">
                   <BarChart3 size={32} />
-                  <span className="mt-1">Live Analytics</span>
+                  <span className="mt-1">Analytics</span>
                 </div>
                 <div className="flex flex-col items-center text-slate-400 text-xs">
                   <Shield size={32} />
-                  <span className="mt-1">Risk Protection</span>
+                  <span className="mt-1">Risk Controls</span>
                 </div>
               </div>
 
-              {mode === "strategies" && (
-                <>
-                  <div className="text-center mb-4">
-                    <p className="text-sm text-slate-300 font-medium">
-                      API Plans – India/Crypto broker API execution
-                    </p>
-                  </div>
+              {/* Mode header */}
+              <div className="text-center mb-4">
+                <p className="text-sm text-slate-300 font-medium">{modeLabel(mode)}</p>
+                <p className="text-xs text-slate-500 mt-1">{modeDesc(mode)}</p>
+              </div>
 
-                  {plansLoadingState ? (
-                    <div className="grid md:grid-cols-3 gap-6">
-                      {[...Array(6)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="rounded-2xl border border-slate-800 p-6 bg-slate-900/60 animate-pulse"
-                        >
-                          <div className="h-5 w-40 bg-slate-800 rounded" />
-                          <div className="h-3 w-56 bg-slate-800 rounded mt-3" />
-                          <div className="h-10 w-32 bg-slate-800 rounded mt-5" />
-                          <div className="h-10 w-full bg-slate-800 rounded-xl mt-6" />
-                        </div>
-                      ))}
+              {/* Plans grid */}
+              {plansLoadingState ? (
+                <div className="grid md:grid-cols-3 gap-6">
+                  {[...Array(6)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="rounded-2xl border border-slate-800 p-6 bg-slate-900/60 animate-pulse"
+                    >
+                      <div className="h-5 w-40 bg-slate-800 rounded" />
+                      <div className="h-3 w-56 bg-slate-800 rounded mt-3" />
+                      <div className="h-10 w-32 bg-slate-800 rounded mt-5" />
+                      <div className="h-10 w-full bg-slate-800 rounded-xl mt-6" />
                     </div>
-                  ) : apiPlans.length === 0 ? (
-                    <div className="text-center text-slate-500 text-sm py-10">
-                      No API plans found.
-                    </div>
-                  ) : (
-                    <div className="grid md:grid-cols-3 gap-6">
-                      {apiPlans.map((p) => renderPlanCard(p, "strategies"))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {mode === "copy" && (
-                <>
-                  <div className="text-center mb-4">
-                    <p className="text-sm text-slate-300 font-medium">
-                      Pine Connector – TradingView webhook → MT4/MT5
-                    </p>
-                  </div>
-
-                  {plansLoadingState ? (
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {[...Array(2)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="rounded-2xl border border-emerald-500/40 p-8 bg-slate-900/70 animate-pulse"
-                        >
-                          <div className="h-5 w-56 bg-slate-800 rounded" />
-                          <div className="h-3 w-72 bg-slate-800 rounded mt-3" />
-                          <div className="h-11 w-full bg-slate-800 rounded-xl mt-8" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : pinePlans.length === 0 ? (
-                    <div className="text-center text-slate-500 text-sm py-10">
-                      No Pine Connector plans found.
-                    </div>
-                  ) : (
-                    <div className="grid md:grid-cols-2 gap-6">
-                      {pinePlans.map((p) => renderPlanCard(p, "copy"))}
-                    </div>
-                  )}
-                </>
-              )}
-
-              {mode === "both" && (
-                <div className="max-w-3xl mx-auto">
-                  <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
-                    <div className="flex items-center gap-3">
-                      <Brain className="text-emerald-400" size={22} />
-                      <p className="text-lg font-semibold text-slate-100">
-                        Bundle plans not added yet
-                      </p>
-                    </div>
-                    <p className="text-sm text-slate-400 mt-2">
-                      When you insert bundle plans in DB, we’ll auto-show them here.
-                    </p>
-                  </div>
+                  ))}
                 </div>
+              ) : (
+                <>
+                  {mode === "forex" &&
+                    (forexPlans.length === 0 ? (
+                      <div className="text-center text-slate-500 text-sm py-10">
+                        No Forex plans found.
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-2 gap-6">
+                        {forexPlans.map((p) => renderPlanCard(p, "forex"))}
+                      </div>
+                    ))}
+
+                  {mode === "india" &&
+                    (indiaPlans.length === 0 ? (
+                      <div className="text-center text-slate-500 text-sm py-10">
+                        No India plans found.
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-3 gap-6">
+                        {indiaPlans.map((p) => renderPlanCard(p, "india"))}
+                      </div>
+                    ))}
+
+                  {mode === "crypto" &&
+                    (cryptoPlans.length === 0 ? (
+                      <div className="text-center text-slate-500 text-sm py-10">
+                        No Crypto plans found.
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-3 gap-6">
+                        {cryptoPlans.map((p) => renderPlanCard(p, "crypto"))}
+                      </div>
+                    ))}
+
+                  {mode === "copy" &&
+                    (copyPlans.length === 0 ? (
+                      <div className="text-center text-slate-500 text-sm py-10">
+                        No Copy Trading plans found.
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-2 gap-6">
+                        {copyPlans.map((p) => renderPlanCard(p, "copy"))}
+                      </div>
+                    ))}
+
+                  {mode === "bundle" &&
+                    (bundlePlans.length === 0 ? (
+                      <div className="text-center text-slate-500 text-sm py-10">
+                        No Bundle plans found.
+                      </div>
+                    ) : (
+                      <div className="grid md:grid-cols-2 gap-6">
+                        {bundlePlans.map((p) => renderPlanCard(p, "bundle"))}
+                      </div>
+                    ))}
+                </>
               )}
 
               {/* Bottom action */}
@@ -851,8 +895,8 @@ const SubscriptionWizardPage: React.FC = () => {
                 <p className="text-[11px] text-slate-500 mt-2">
                   Plan ID:{" "}
                   <span className="text-slate-300 font-semibold">{flow.planId}</span>{" "}
-                  • Mode:{" "}
-                  <span className="text-slate-300 font-semibold">{flow.mode}</span>
+                  • Category:{" "}
+                  <span className="text-slate-300 font-semibold">{modeLabel(flow.mode)}</span>
                 </p>
               </motion.div>
 
@@ -876,7 +920,7 @@ const SubscriptionWizardPage: React.FC = () => {
                     <li>Profit-sharing / fees (if applicable) apply as per the plan terms.</li>
                     <li>You remain responsible for deposits, withdrawals, and any manual trades.</li>
                     <li>No guaranteed returns or assured profit is provided.</li>
-                    <li>Trading may be paused during volatility / connectivity / risk events.</li>
+                    <li>Execution may be paused during volatility / connectivity / risk events.</li>
                   </ul>
 
                   <div className="flex items-start gap-3 p-4 bg-yellow-500/10 border border-yellow-600/30 rounded-xl">
@@ -1130,8 +1174,10 @@ const SubscriptionWizardPage: React.FC = () => {
                       <span className="text-slate-200 font-semibold">{flow.planId ?? "—"}</span>
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
-                      Mode:{" "}
-                      <span className="text-slate-200 font-semibold">{flow.mode ?? "—"}</span>
+                      Category:{" "}
+                      <span className="text-slate-200 font-semibold">
+                        {modeLabel(flow.mode)}
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -1178,8 +1224,8 @@ const SubscriptionWizardPage: React.FC = () => {
                     </p>
 
                     <p className="text-[11px] text-slate-500 mt-2">
-                      Mode:{" "}
-                      <span className="text-slate-300 font-semibold">{flow.mode}</span>{" "}
+                      Category:{" "}
+                      <span className="text-slate-300 font-semibold">{modeLabel(flow.mode)}</span>{" "}
                       • Plan ID:{" "}
                       <span className="text-slate-300 font-semibold">{flow.planId}</span>{" "}
                       • User ID:{" "}
@@ -1244,11 +1290,11 @@ const SubscriptionWizardPage: React.FC = () => {
                 <div className="flex flex-col sm:flex-row justify-between gap-3 text-xs text-slate-400">
                   <div className="flex items-center gap-2">
                     <ShieldCheck size={16} className="text-emerald-400" />
-                    <span>Gateway will be integrated here later.</span>
+                    <span>Secure checkout will be integrated here.</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock size={14} className="text-slate-500" />
-                    <span>Activation will happen after confirmation.</span>
+                    <span>Activation happens after confirmation.</span>
                   </div>
                 </div>
 
@@ -1289,8 +1335,8 @@ const SubscriptionWizardPage: React.FC = () => {
                     <p className="text-sm text-slate-100 font-semibold">{flow.planId ?? "—"}</p>
                   </div>
                   <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4">
-                    <p className="text-xs text-slate-500">Mode</p>
-                    <p className="text-sm text-slate-100 font-semibold">{flow.mode ?? "—"}</p>
+                    <p className="text-xs text-slate-500">Category</p>
+                    <p className="text-sm text-slate-100 font-semibold">{modeLabel(flow.mode)}</p>
                   </div>
                 </div>
 

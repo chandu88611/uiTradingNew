@@ -40,7 +40,7 @@ import CryptoDeltaSettings, {
 } from "./CryptoDeltaSettings";
 
 import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
-import CopyTradingSettings, { CopyTradingSettingsValue } from "./CopyTradingSettings";
+import CopyTradingSettings, {  } from "./CopyTradingSettings";
 
 /** helpers */
 const inputBase =
@@ -59,10 +59,10 @@ type TradeSettings = {
   pineConnector?: PineConnectorSettingsValue;
   indianMarket?: IndianMarketSettingsValue;
   crypto?: CryptoDeltaSettingsValue;
-    copyTrading?: CopyTradingSettingsValue;
+  // copyTrading?: CopyTradingSettingsValue;
 };
 
-type TradingTabKey = "pine" | "india" | "crypto"| "copy";
+type TradingTabKey = "pine" | "india" | "crypto" | "copy";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -75,11 +75,11 @@ function moneyINRFromCents(cents?: number | null) {
 }
 
 export default function UserProfilePage() {
-  const [activeTab, setActiveTab] = useState<"profile" | "billing" | "trading"|"copy">(
+  const [activeTab, setActiveTab] = useState<"profile" | "billing" | "trading" | "copy">(
     "profile"
   );
 
- 
+
   // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [editBillingOpen, setEditBillingOpen] = useState(false);
@@ -172,23 +172,23 @@ export default function UserProfilePage() {
     : null;
 
 
-    const [updateTradeStatus, { isLoading: tradeStatusLoading }] =
-  useUpdateTradeStatusMutation();
+  const [updateTradeStatus, { isLoading: tradeStatusLoading }] =
+    useUpdateTradeStatusMutation();
 
-const serverAllowTrade: boolean = Boolean(
-  (mySub as any)?.allowTrade ?? (mySub as any)?.executionEnabled
-);
+  const serverAllowTrade: boolean = Boolean(
+    (mySub as any)?.allowTrade ?? (mySub as any)?.executionEnabled
+  );
 
-const [allowTradeLocal, setAllowTradeLocal] = useState<boolean>(serverAllowTrade);
+  const [allowTradeLocal, setAllowTradeLocal] = useState<boolean>(serverAllowTrade);
 
-useEffect(() => {
-  setAllowTradeLocal(serverAllowTrade);
-}, [serverAllowTrade]);
+  useEffect(() => {
+    setAllowTradeLocal(serverAllowTrade);
+  }, [serverAllowTrade]);
 
 
-const canUseCopyTrading = Boolean(
-  plan?.featureFlags?.tradeCopier || plan?.featureFlags?.copyTrading
-);
+  const canUseCopyTrading = Boolean(
+    plan?.featureFlags?.tradeCopier || plan?.featureFlags?.copyTrading
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-white pt-16 md:pt-28 px-4 md:px-6 pb-10">
@@ -223,11 +223,11 @@ const canUseCopyTrading = Boolean(
           />
 
           <TabButton
-  active={activeTab === "copy"}
-  onClick={() => setActiveTab("copy")}
-  icon={<Zap size={16} />}
-  label="Copy Trading"
-/>
+            active={activeTab === "copy"}
+            onClick={() => setActiveTab("copy")}
+            icon={<Zap size={16} />}
+            label="Copy Trading"
+          />
 
           <div className="flex-1" />
           <button
@@ -311,67 +311,67 @@ const canUseCopyTrading = Boolean(
               </>
             )}
 
-      {/* BILLING TAB */}
-{activeTab === "billing" && (
-  <>
-    <section className={sectionBase}>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-xl font-semibold">Billing Details</h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Only PAN + address are required for invoices. Bank details are not collected ✅
-          </p>
-        </div>
+            {/* BILLING TAB */}
+            {activeTab === "billing" && (
+              <>
+                <section className={sectionBase}>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-xl font-semibold">Billing Details</h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Only PAN + address are required for invoices. Bank details are not collected ✅
+                      </p>
+                    </div>
 
-        <button
-          onClick={() => setEditBillingOpen(true)}
-          className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-        >
-          <Pencil size={15} />
-          Edit Billing
-        </button>
-      </div>
+                    <button
+                      onClick={() => setEditBillingOpen(true)}
+                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                    >
+                      <Pencil size={15} />
+                      Edit Billing
+                    </button>
+                  </div>
 
-      {billingLoading || billingFetching ? (
-        <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
-      ) : (
-        <div className="mt-6 grid gap-6 sm:grid-cols-2">
-          <InfoRow
-            label="PAN Number"
-            value={billing?.panNumber || "—"}
-            icon={<Hash />}
-          />
+                  {billingLoading || billingFetching ? (
+                    <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
+                  ) : (
+                    <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                      <InfoRow
+                        label="PAN Number"
+                        value={billing?.panNumber || "—"}
+                        icon={<Hash />}
+                      />
 
-       <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-  <div className="flex items-start gap-3">
-    <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-      <MapPin />
-    </div>
+                      <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                            <MapPin />
+                          </div>
 
-    <div>
-      <p className="text-xs text-slate-400">Address</p>
+                          <div>
+                            <p className="text-xs text-slate-400">Address</p>
 
-      {billing ? (
-        <div className="mt-1 space-y-1 text-sm text-slate-200">
-          <div>{billing.addressLine1}</div>
-          {billing.addressLine2 && <div>{billing.addressLine2}</div>}
-          <div>
-            {billing.city}, {billing.state}
-          </div>
-          <div className="font-medium">{billing.pincode}</div>
-        </div>
-      ) : (
-        <p className="text-sm text-slate-400">—</p>
-      )}
-    </div>
-  </div>
-</div>
+                            {billing ? (
+                              <div className="mt-1 space-y-1 text-sm text-slate-200">
+                                <div>{billing.addressLine1}</div>
+                                {billing.addressLine2 && <div>{billing.addressLine2}</div>}
+                                <div>
+                                  {billing.city}, {billing.state}
+                                </div>
+                                <div className="font-medium">{billing.pincode}</div>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400">—</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
 
-        </div>
-      )}
-    </section>
-  </>
-)}
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
 
 
             {/* TRADING TAB */}
@@ -389,7 +389,7 @@ const canUseCopyTrading = Boolean(
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    <a href="/trading/dashboard">
+                    {mySub && <a href="/trading/dashboard">
                       <button
                         type="button"
                         className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
@@ -397,7 +397,7 @@ const canUseCopyTrading = Boolean(
                         <CandlestickChart size={16} />
                         Open Trading Workspace
                       </button>
-                    </a>
+                    </a>}
 
                     <button
                       type="button"
@@ -584,7 +584,7 @@ const canUseCopyTrading = Boolean(
                         </div>
                       </div>
 
-                <PineConnectorSettings
+                      <PineConnectorSettings
                         value={localTradeSettings.pineConnector}
                         onChange={(next) =>
                           setLocalTradeSettings((p) => ({
@@ -631,7 +631,7 @@ const canUseCopyTrading = Boolean(
               </section>
             )}
 
-            {/* COPY TRADING TAB */}
+           {/* COPY TRADING TAB */}
 {activeTab === "copy" && (
   <section className={sectionBase}>
     <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -641,58 +641,34 @@ const canUseCopyTrading = Boolean(
           Copy Trading Settings
         </h2>
         <p className="text-xs text-slate-400 mt-1">
-          Configure copy trading based on your preferred market (Forex / Indian).
+          Add accounts based on your plan (India: broker token • Forex: MT5/cTrader).
         </p>
       </div>
-
-      <button
-        type="button"
-        onClick={async () => {
-          try {
-            await updateMe({
-              tradeSettings: localTradeSettings,
-            } as any).unwrap();
-            toast.success("Copy trading settings saved");
-            refetchMe();
-          } catch (err: any) {
-            toast.error(err?.data?.message || "Failed to save copy trading settings");
-          }
-        }}
-        className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-      >
-        <Save size={16} />
-        Save Copy Trading
-      </button>
     </div>
 
-    {/* Plan Gate */}
     {!mySub ? (
       <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
         No active subscription found. Please subscribe to enable copy trading.
       </div>
-    ) : canUseCopyTrading ? (
+    ) : !canUseCopyTrading ? (
       <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
-        Your current plan does not include <span className="text-slate-100 font-semibold">Copy Trading</span>.
+        Your current plan does not include{" "}
+        <span className="text-slate-100 font-semibold">Copy Trading</span>.
       </div>
     ) : (
       <div className="mt-6">
         <CopyTradingSettings
-          value={localTradeSettings.copyTrading}
-          onChange={(next) =>
-            setLocalTradeSettings((p) => ({
-              ...p,
-              copyTrading: next,
-            }))
-          }
+          mode={plan?.category === "INDIA" ? "INDIA" : "FOREX"}
         />
       </div>
     )}
 
     <p className="mt-6 text-[11px] text-slate-500">
-      Tip: For Forex choose MT5/cTrader and store credentials per account. For Indian market store token per account.
+      Tip: India plans use broker token per account. Forex plans use MT5/cTrader accounts.
     </p>
   </section>
 )}
+
 
           </>
         )}
@@ -770,11 +746,10 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
-        active
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${active
           ? "bg-emerald-500 text-slate-950 border-emerald-500"
           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-      }`}
+        }`}
     >
       {icon}
       {label}
@@ -794,11 +769,10 @@ function SubTab({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
-        active
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${active
           ? "bg-slate-100 text-slate-950 border-slate-100"
           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-      }`}
+        }`}
     >
       <Settings2 size={16} />
       {label}

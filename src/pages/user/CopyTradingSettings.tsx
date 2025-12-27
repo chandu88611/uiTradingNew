@@ -1,523 +1,425 @@
-import React, { useMemo } from "react";
-import { Plus, Trash2, ShieldCheck, Settings2 } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { RefreshCw, Save, Pencil, Trash2, Crown, X } from "lucide-react";
+import { toast } from "react-toastify";
+
+import {
+  useGetMyForexTraderDetailsQuery,
+  useUpsertMyForexTraderDetailsMutation,
+  usePatchForexTraderDetailByIdMutation,
+  useDeleteForexTraderDetailByIdMutation,
+  ForexTradeCategory,
+} from "../../services/forexTraderUserDetails.api";
 
 const inputBase =
   "mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 outline-none transition-all duration-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400";
 
-function clsx(...parts: Array<string | false  | undefined>) {
+function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-function uid() {
-  // browser-safe id
-  // @ts-ignore
-  if (typeof crypto !== "undefined" && crypto?.randomUUID) return crypto.randomUUID();
-  return `id_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
-
-type CopyMarket = "FOREX" | "INDIA";
-type ForexPlatform = "MT5" | "CTRADER";
-
-export type CopyTradingSettingsValue = {
-  enabled?: boolean; // global enable/disable
-  market?: CopyMarket;
-
-  forex?: {
-    platform?: ForexPlatform;
-    accounts?: Array<{
-      id: string;
-      label?: string;
-      enabled?: boolean;
-
-      // MT5
-      mt5Login?: string;
-      mt5Password?: string;
-      mt5Server?: string;
-
-      // cTrader (adjust fields as per your backend)
-      ctraderAccountId?: string;
-      ctraderAccessToken?: string;
-      ctraderClientId?: string;
-    }>;
-  };
-
-  india?: {
-    broker?: string; // optional (Zerodha/Angel/Upstox...)
-    accounts?: Array<{
-      id: string;
-      label?: string;
-      enabled?: boolean;
-
-      clientId?: string;
-      token?: string;
-    }>;
-  };
+type Props = {
+  // keep your prop if your page passes it
+  mode?: "FOREX" | "INDIA";
 };
 
-export default function CopyTradingSettings({
-  value,
-  onChange,
-}: {
-  value?: CopyTradingSettingsValue;
-  onChange: (next: CopyTradingSettingsValue) => void;
-}) {
-  const v = useMemo<CopyTradingSettingsValue>(() => {
-    const base = value ?? {};
-    return {
-      enabled: Boolean(base.enabled),
-      market: (base.market ?? "FOREX") as CopyMarket,
-      forex: {
-        platform: (base.forex?.platform ?? "MT5") as ForexPlatform,
-        accounts: base.forex?.accounts ?? [],
-      },
-      india: {
-        broker: base.india?.broker ?? "ZERODHA",
-        accounts: base.india?.accounts ?? [],
-      },
-    };
-  }, [value]);
+export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
+  // if you want only forex on this page
+  if (mode !== "FOREX") {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-slate-300">
+        This page is only for FOREX trader details.
+      </div>
+    );
+  }
 
-  const set = (patch: Partial<CopyTradingSettingsValue>) => onChange({ ...v, ...patch });
+  const {
+    data: forexDetailsRes,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useGetMyForexTraderDetailsQuery();
 
-  const setForex = (patch: Partial<NonNullable<CopyTradingSettingsValue["forex"]>>) =>
-    set({ forex: { ...(v.forex ?? {}), ...patch } });
+  const rows = useMemo(() => {
+    const raw = (forexDetailsRes as any)?.data ?? forexDetailsRes ?? [];
+    return Array.isArray(raw) ? raw : [];
+  }, [forexDetailsRes]);
 
-  const setIndia = (patch: Partial<NonNullable<CopyTradingSettingsValue["india"]>>) =>
-    set({ india: { ...(v.india ?? {}), ...patch } });
+  const [upsertFx, { isLoading: saving }] = useUpsertMyForexTraderDetailsMutation();
+  const [patchFx, { isLoading: patching }] = usePatchForexTraderDetailByIdMutation();
+  const [deleteFx, { isLoading: deleting }] = useDeleteForexTraderDetailByIdMutation();
 
-  const setForexAccount = (id: string, patch: any) => {
-    const next = (v.forex?.accounts ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a));
-    setForex({ accounts: next });
-  };
+  // Create form
+  const [fxType, setFxType] = useState<ForexTradeCategory>("MT5");
+  const [isMaster, setIsMaster] = useState(true);
+  const [mt5LoginId, setMt5LoginId] = useState("");
+  const [ctraderAccountId, setCtraderAccountId] = useState("");
+  const [ctraderToken, setCtraderToken] = useState("");
 
-  const setIndiaAccount = (id: string, patch: any) => {
-    const next = (v.india?.accounts ?? []).map((a) => (a.id === id ? { ...a, ...patch } : a));
-    setIndia({ accounts: next });
-  };
+  // Edit state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editIsMaster, setEditIsMaster] = useState(false);
+  const [editUserId, setEditUserId] = useState("");
+  const [editToken, setEditToken] = useState(""); // optional; never prefill
 
-  const removeForexAccount = (id: string) =>
-    setForex({ accounts: (v.forex?.accounts ?? []).filter((a) => a.id !== id) });
+  function resetForm() {
+    setFxType("MT5");
+    setIsMaster(true);
+    setMt5LoginId("");
+    setCtraderAccountId("");
+    setCtraderToken("");
+  }
 
-  const removeIndiaAccount = (id: string) =>
-    setIndia({ accounts: (v.india?.accounts ?? []).filter((a) => a.id !== id) });
+  function startEdit(r: any) {
+    setEditingId(Number(r.id));
+    setEditIsMaster(!!r.isMaster);
+    setEditUserId(String(r.forexTraderUserId ?? ""));
+    setEditToken("");
+  }
 
-  const addForexAccount = () => {
-    const next = [...(v.forex?.accounts ?? []), { id: uid(), enabled: true, label: "" }];
-    setForex({ accounts: next });
-  };
+  function cancelEdit() {
+    setEditingId(null);
+    setEditIsMaster(false);
+    setEditUserId("");
+    setEditToken("");
+  }
 
-  const addIndiaAccount = () => {
-    const next = [...(v.india?.accounts ?? []), { id: uid(), enabled: true, label: "" }];
-    setIndia({ accounts: next });
-  };
+  async function onSaveNew() {
+    try {
+      const typeUpper = String(fxType).toUpperCase();
 
-  const disabledAll = !v.enabled;
+      if (typeUpper === "MT5") {
+        if (!mt5LoginId.trim()) return toast.error("MT5 Login ID is required");
+
+        await upsertFx({
+          forexType: "MT5",
+          forexTraderUserId: mt5LoginId.trim(),
+          isMaster,
+          // token not sent for MT5
+        }).unwrap();
+
+        toast.success("Saved");
+        resetForm();
+        refetch();
+        return;
+      }
+
+      // CTRADER
+      if (!ctraderAccountId.trim()) return toast.error("cTrader Account ID is required");
+      // token can be required by your service. if you make it optional in backend, this still works.
+      if (!ctraderToken.trim()) return toast.error("cTrader Access Token is required");
+
+      await upsertFx({
+        forexType: "CTRADER",
+        forexTraderUserId: ctraderAccountId.trim(),
+        token: ctraderToken.trim(),
+        isMaster,
+      }).unwrap();
+
+      toast.success("Saved");
+      resetForm();
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to save");
+    }
+  }
+
+  async function onSaveEdit(id: number) {
+    try {
+      if (!editUserId.trim()) return toast.error("User ID is required");
+
+      const patch: any = {
+        forexTraderUserId: editUserId.trim(),
+        isMaster: editIsMaster,
+      };
+
+      if (editToken.trim()) patch.token = editToken.trim();
+
+      await patchFx({ id, patch }).unwrap();
+      toast.success("Updated");
+      cancelEdit();
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to update");
+    }
+  }
+
+  async function onSetMaster(id: number) {
+    try {
+      await patchFx({ id, patch: { isMaster: true } }).unwrap();
+      toast.success("Master set");
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed");
+    }
+  }
+
+  async function onDelete(id: number) {
+    try {
+      await deleteFx({ id }).unwrap();
+      toast.success("Deleted");
+      if (editingId === id) cancelEdit();
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed");
+    }
+  }
 
   return (
     <div className="space-y-6">
-      {/* Global Toggle */}
+      {/* Header */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <p className="text-sm font-semibold flex items-center gap-2">
-              <ShieldCheck size={16} className="text-emerald-400" />
-              Copy Trading
-            </p>
+            <p className="text-sm font-semibold">Forex Trader Details</p>
             <p className="text-xs text-slate-400 mt-1">
-              Enable/disable copy trading and manage accounts by market.
+              Use <span className="text-slate-200 font-semibold">PUT /forex-trader-user-details/me</span> to add
+              Master/Child rows. Master is decided by <span className="text-slate-200 font-semibold">isMaster</span>.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={() => set({ enabled: !v.enabled })}
-            className={clsx(
-              "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold border transition",
-              v.enabled
-                ? "bg-emerald-500 text-slate-950 border-emerald-500 hover:bg-emerald-400"
-                : "bg-slate-900 text-slate-200 border-slate-700 hover:border-slate-500"
-            )}
+            onClick={() => refetch()}
+            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
           >
-            <Settings2 size={16} />
-            {v.enabled ? "Enabled" : "Disabled"}
+            <RefreshCw size={14} />
+            {isFetching ? "Refreshing..." : "Refresh"}
           </button>
         </div>
       </div>
 
-      {/* Market Selector */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => set({ market: "FOREX" })}
-          className={clsx(
-            "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition",
-            v.market === "FOREX"
-              ? "bg-slate-100 text-slate-950 border-slate-100"
-              : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-          )}
-        >
-          FOREX
-        </button>
+      {/* Add Row */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold">Add Master / Child</p>
+            <p className="text-xs text-slate-400 mt-1">
+              MT5: Login ID only • cTrader: Account ID + Access Token
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => set({ market: "INDIA" })}
-          className={clsx(
-            "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition",
-            v.market === "INDIA"
-              ? "bg-slate-100 text-slate-950 border-slate-100"
-              : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
+          <button
+            type="button"
+            onClick={onSaveNew}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+          >
+            <Save size={16} />
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-medium text-slate-300">Forex Type *</label>
+            <select
+              value={fxType}
+              onChange={(e) => setFxType(e.target.value as ForexTradeCategory)}
+              className={clsx(inputBase, "!mt-1")}
+            >
+              <option value="MT5">MT5</option>
+              <option value="CTRADER">cTrader</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-300">Role</label>
+            <div className="mt-2 flex items-center gap-3 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={isMaster}
+                onChange={(e) => setIsMaster(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+              />
+              isMaster = true (unchecked = Child)
+            </div>
+          </div>
+
+          {fxType === "MT5" ? (
+            <div className="md:col-span-2">
+              <label className="text-xs font-medium text-slate-300">MT5 Login ID *</label>
+              <input
+                value={mt5LoginId}
+                onChange={(e) => setMt5LoginId(e.target.value)}
+                className={inputBase}
+                placeholder="e.g. 12345678"
+              />
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-medium text-slate-300">cTrader Account ID *</label>
+                <input
+                  value={ctraderAccountId}
+                  onChange={(e) => setCtraderAccountId(e.target.value)}
+                  className={inputBase}
+                  placeholder="e.g. 10001234"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-300">cTrader Access Token *</label>
+                <input
+                  value={ctraderToken}
+                  onChange={(e) => setCtraderToken(e.target.value)}
+                  className={inputBase}
+                  placeholder="Paste access token"
+                />
+              </div>
+            </>
           )}
-        >
-          INDIAN MARKET
-        </button>
+        </div>
       </div>
 
-      {/* FOREX */}
-      {v.market === "FOREX" && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-5">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-sm font-semibold">Forex Copy Trading Accounts</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Choose platform and add accounts (MT5 or cTrader).
-              </p>
-            </div>
+      {/* List */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <p className="text-sm font-semibold">Saved Rows</p>
 
-            <button
-              type="button"
-              onClick={addForexAccount}
-              disabled={disabledAll}
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Plus size={16} />
-              Add Account
-            </button>
-          </div>
-
-          {/* Platform */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={disabledAll}
-              onClick={() => setForex({ platform: "MT5" })}
-              className={clsx(
-                "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition",
-                v.forex?.platform === "MT5"
-                  ? "bg-slate-100 text-slate-950 border-slate-100"
-                  : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500",
-                disabledAll && "opacity-60 cursor-not-allowed"
-              )}
-            >
-              MT5
-            </button>
-
-            <button
-              type="button"
-              disabled={disabledAll}
-              onClick={() => setForex({ platform: "CTRADER" })}
-              className={clsx(
-                "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition",
-                v.forex?.platform === "CTRADER"
-                  ? "bg-slate-100 text-slate-950 border-slate-100"
-                  : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500",
-                disabledAll && "opacity-60 cursor-not-allowed"
-              )}
-            >
-              cTrader
-            </button>
-          </div>
-
-          {/* Accounts List */}
-          {(v.forex?.accounts ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">No accounts added yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {(v.forex?.accounts ?? []).map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={disabledAll}
-                        onClick={() => setForexAccount(a.id, { enabled: !a.enabled })}
-                        className={clsx(
-                          "rounded-full px-3 py-1 text-xs font-semibold border",
-                          a.enabled
-                            ? "bg-emerald-500 text-slate-950 border-emerald-500"
-                            : "bg-slate-900 text-slate-300 border-slate-700",
-                          disabledAll && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        {a.enabled ? "Enabled" : "Disabled"}
-                      </button>
-
-                      <span className="text-xs text-slate-400">
-                        {v.forex?.platform === "MT5" ? "MT5 Account" : "cTrader Account"}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={disabledAll}
-                      onClick={() => removeForexAccount(a.id)}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+        {isLoading ? (
+          <div className="mt-4 text-sm text-slate-400">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="mt-4 text-sm text-slate-400">No rows yet.</div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {rows.map((r: any) => {
+              const isEditing = editingId === Number(r.id);
+              return (
+                <div key={r.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
-                      <label className="text-xs font-medium text-slate-300">
-                        Label (Optional)
-                      </label>
-                      <input
-                        disabled={disabledAll}
-                        value={a.label ?? ""}
-                        onChange={(e) => setForexAccount(a.id, { label: e.target.value })}
-                        className={clsx(inputBase, disabledAll && "opacity-60")}
-                        placeholder="My ICMarkets #1"
-                      />
+                      <div className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                        {r.forexType}
+                        {r.isMaster ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400/15 px-2 py-1 text-[11px] text-yellow-200">
+                            <Crown size={12} /> Master
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-200">
+                            Child
+                          </span>
+                        )}
+                      </div>
+
+                      {!isEditing ? (
+                        <div className="text-xs text-slate-400 mt-1">
+                          User ID: <span className="text-slate-200">{r.forexTraderUserId}</span>
+                          {String(r.forexType).toUpperCase() === "CTRADER" && (
+                            <>
+                              {" "}• hasToken:{" "}
+                              <span className="text-slate-200">{r.hasToken ? "yes" : "no"}</span>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-3 grid gap-4 md:grid-cols-3">
+                          <div className="md:col-span-2">
+                            <label className="text-xs font-medium text-slate-300">User ID *</label>
+                            <input
+                              value={editUserId}
+                              onChange={(e) => setEditUserId(e.target.value)}
+                              className={inputBase}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-medium text-slate-300">Role</label>
+                            <div className="mt-2 flex items-center gap-3 text-sm text-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={editIsMaster}
+                                onChange={(e) => setEditIsMaster(e.target.checked)}
+                                className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+                              />
+                              isMaster
+                            </div>
+                          </div>
+
+                          {String(r.forexType).toUpperCase() === "CTRADER" && (
+                            <div className="md:col-span-3">
+                              <label className="text-xs font-medium text-slate-300">
+                                cTrader Token (optional)
+                                <span className="text-[11px] text-slate-500 ml-2">
+                                  leave blank to keep existing
+                                </span>
+                              </label>
+                              <input
+                                value={editToken}
+                                onChange={(e) => setEditToken(e.target.value)}
+                                className={inputBase}
+                                placeholder="New token (optional)"
+                              />
+                            </div>
+                          )}
+
+                          <div className="md:col-span-3 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onSaveEdit(Number(r.id))}
+                              disabled={patching}
+                              className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+                            >
+                              <Save size={16} />
+                              {patching ? "Saving..." : "Save Changes"}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={cancelEdit}
+                              className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-700"
+                            >
+                              <X size={16} />
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
-                    {v.forex?.platform === "MT5" ? (
-                      <>
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            MT5 Login
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            value={a.mt5Login ?? ""}
-                            onChange={(e) => setForexAccount(a.id, { mt5Login: e.target.value })}
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="12345678"
-                          />
-                        </div>
+                    {!isEditing && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!r.isMaster && (
+                          <button
+                            type="button"
+                            onClick={() => onSetMaster(Number(r.id))}
+                            disabled={patching}
+                            className="inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-yellow-300 disabled:opacity-60"
+                          >
+                            <Crown size={14} />
+                            Set Master
+                          </button>
+                        )}
 
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            MT5 Password
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            type="password"
-                            value={a.mt5Password ?? ""}
-                            onChange={(e) =>
-                              setForexAccount(a.id, { mt5Password: e.target.value })
-                            }
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="••••••••"
-                          />
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => startEdit(r)}
+                          className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-100 hover:bg-slate-700"
+                        >
+                          <Pencil size={14} />
+                          Edit
+                        </button>
 
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            MT5 Server
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            value={a.mt5Server ?? ""}
-                            onChange={(e) => setForexAccount(a.id, { mt5Server: e.target.value })}
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="ICMarketsSC-Live"
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            cTrader Account ID
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            value={a.ctraderAccountId ?? ""}
-                            onChange={(e) =>
-                              setForexAccount(a.id, { ctraderAccountId: e.target.value })
-                            }
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="10987654"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            cTrader Access Token
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            type="password"
-                            value={a.ctraderAccessToken ?? ""}
-                            onChange={(e) =>
-                              setForexAccount(a.id, { ctraderAccessToken: e.target.value })
-                            }
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="••••••••"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-xs font-medium text-slate-300">
-                            cTrader Client ID (Optional)
-                          </label>
-                          <input
-                            disabled={disabledAll}
-                            value={a.ctraderClientId ?? ""}
-                            onChange={(e) =>
-                              setForexAccount(a.id, { ctraderClientId: e.target.value })
-                            }
-                            className={clsx(inputBase, disabledAll && "opacity-60")}
-                            placeholder="your-client-id"
-                          />
-                        </div>
-                      </>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(Number(r.id))}
+                          disabled={deleting}
+                          className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-rose-400 disabled:opacity-60"
+                        >
+                          <Trash2 size={14} />
+                          Delete
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          <p className="text-[11px] text-slate-500">
-            Note: Store secrets securely on backend (encrypt at rest). UI only collects inputs.
-          </p>
-        </div>
-      )}
-
-      {/* INDIA */}
-      {v.market === "INDIA" && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 space-y-5">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-sm font-semibold">Indian Market Accounts</p>
-              <p className="text-xs text-slate-400 mt-1">
-                Add token per account. You can add / update / delete accounts.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={addIndiaAccount}
-              disabled={disabledAll}
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Plus size={16} />
-              Add Account
-            </button>
+              );
+            })}
           </div>
+        )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="text-xs font-medium text-slate-300">Broker</label>
-              <select
-                disabled={disabledAll}
-                value={v.india?.broker ?? "ZERODHA"}
-                onChange={(e) => setIndia({ broker: e.target.value })}
-                className={clsx(inputBase, "!mt-1", disabledAll && "opacity-60")}
-              >
-                <option value="ZERODHA">Zerodha</option>
-                <option value="ANGEL">Angel One</option>
-                <option value="UPSTOX">Upstox</option>
-                <option value="FYERS">Fyers</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </div>
-          </div>
-
-          {(v.india?.accounts ?? []).length === 0 ? (
-            <p className="text-sm text-slate-400">No accounts added yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {(v.india?.accounts ?? []).map((a) => (
-                <div
-                  key={a.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
-                >
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={disabledAll}
-                        onClick={() => setIndiaAccount(a.id, { enabled: !a.enabled })}
-                        className={clsx(
-                          "rounded-full px-3 py-1 text-xs font-semibold border",
-                          a.enabled
-                            ? "bg-emerald-500 text-slate-950 border-emerald-500"
-                            : "bg-slate-900 text-slate-300 border-slate-700",
-                          disabledAll && "opacity-60 cursor-not-allowed"
-                        )}
-                      >
-                        {a.enabled ? "Enabled" : "Disabled"}
-                      </button>
-
-                      <span className="text-xs text-slate-400">Account</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={disabledAll}
-                      onClick={() => removeIndiaAccount(a.id)}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <div>
-                      <label className="text-xs font-medium text-slate-300">
-                        Label (Optional)
-                      </label>
-                      <input
-                        disabled={disabledAll}
-                        value={a.label ?? ""}
-                        onChange={(e) => setIndiaAccount(a.id, { label: e.target.value })}
-                        className={clsx(inputBase, disabledAll && "opacity-60")}
-                        placeholder="My Zerodha #1"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-slate-300">Client ID</label>
-                      <input
-                        disabled={disabledAll}
-                        value={a.clientId ?? ""}
-                        onChange={(e) => setIndiaAccount(a.id, { clientId: e.target.value })}
-                        className={clsx(inputBase, disabledAll && "opacity-60")}
-                        placeholder="AB1234"
-                      />
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="text-xs font-medium text-slate-300">
-                        Access Token
-                      </label>
-                      <input
-                        disabled={disabledAll}
-                        type="password"
-                        value={a.token ?? ""}
-                        onChange={(e) => setIndiaAccount(a.id, { token: e.target.value })}
-                        className={clsx(inputBase, disabledAll && "opacity-60")}
-                        placeholder="••••••••"
-                      />
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        Token should be stored securely and refreshed as per broker rules.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        {(isFetching || isLoading) && (
+          <div className="mt-3 text-[11px] text-slate-500">Syncing…</div>
+        )}
+      </div>
     </div>
   );
 }

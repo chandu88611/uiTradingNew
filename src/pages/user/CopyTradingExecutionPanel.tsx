@@ -2,13 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Save, Zap, Link2, Unlink2, Search, X } from "lucide-react";
 import { toast } from "react-toastify";
 
+/**
+ * ✅ Backend you will wire:
+ * - Manual copy trade
+ * - Strategy listing + link/unlink
+ *
+ * ❌ Removed: useSearchSymbolsQuery (your /copy/symbols endpoint doesn't exist)
+ */
+
+ 
 import {
   usePlaceManualCopyTradeMutation,
   useListMyCopyLinksQuery,
   useUpsertCopyLinkMutation,
   useDeleteCopyLinkMutation,
   useListMyCopyStrategiesQuery,
-  useSearchCopySymbolsQuery,
 } from "../../services/copyTradingExecution.api";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
@@ -18,165 +26,304 @@ function clsx(...parts: Array<string | false | null | undefined>) {
 const inputBase =
   "mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 outline-none transition-all duration-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400";
 
-type Mode = "FOREX" | "INDIA";
-
-type Props = {
-  /** ✅ from user plan / subscription entitlements */
-  enabledMarkets: Mode[];
-
-  /**
-   * Pass connected accounts from your existing components:
-   * - FOREX: from /forex-trader-user-details/me
-   * - INDIA: from your broker accounts endpoint
-   */
-  accounts: Array<{
-    id: string | number;
-    market: Mode;
-    brokerType: string; // MT5 / CTRADER / ZERODHA / etc
-    label: string; // "MT5 • 123456" / "Zerodha • AB1234"
-    isMaster?: boolean;
-  }>;
-
-  /** Optional: initial market selection when both enabled */
-  initialMarket?: Mode;
-
-  /**
-   * ✅ TradingView price display widget (UI-only).
-   * This does NOT provide a legal quote API for trading execution.
-   */
-  showTradingViewWidget?: boolean;
-
-  /**
-   * Optional helper to map your symbol into TradingView format.
-   * Example outputs:
-   * - "FX:EURUSD"
-   * - "OANDA:XAUUSD"
-   * - "NSE:RELIANCE"
-   */
-  toTradingViewSymbol?: (args: { market: Mode; symbol: string }) => string;
-};
-
+type Market = "FOREX" | "INDIA";
 type Side = "BUY" | "SELL";
 type OrderTypeForex = "MARKET" | "LIMIT" | "STOP";
 type OrderTypeIndia = "MARKET" | "LIMIT" | "SL" | "SL-M";
 
+type Props = {
+  enabledMarkets: Market[]; // from plan
+  accounts: Array<{
+    id: string | number;
+    market: Market;
+    brokerType: string;
+    label: string;
+    isMaster?: boolean;
+  }>;
+  initialMarket?: Market;
+
+  /**
+   * TradingView embed widget (display only)
+   * - If you saw 403 before, it’s usually because you tried to fetch it like an API.
+   *   It must be loaded as a <script src="..."> embed.
+   */
+  showTradingViewWidget?: boolean;
+
+  /**
+   * Convert selected symbol into TradingView format.
+   * Examples:
+   * - FOREX: "FX:EURUSD"
+   * - INDIA: "NSE:RELIANCE"
+   * - CRYPTO often: "BINANCE:BTCUSDT"
+   */
+  toTradingViewSymbol?: (args: { market: Market; symbol: string; meta?: TvSymbol }) => string;
+
+  /**
+   * Optional: use a backend proxy to avoid CORS blocks.
+   * If set, we call:
+   *   `${symbolSearchProxyUrl}?text=...&type=...&exchange=...`
+   */
+  symbolSearchProxyUrl?: string;
+};
+
+type TvCategory = "all" | "forex" | "crypto" | "stocks" | "indices" | "futures";
+
+type TvSymbol = {
+  symbol: string;       // "EURUSD"
+  full_name?: string;   // "FX:EURUSD" or "OANDA:EURUSD"
+  description?: string; // "Euro / U.S. Dollar"
+  exchange?: string;    // "OANDA", "FXCM", "NSE"
+  type?: string;        // "forex", "crypto", "stock", ...
+};
+
+function mapCategoryToTvType(cat: TvCategory) {
+  switch (cat) {
+    case "forex":
+      return "forex";
+    case "crypto":
+      return "crypto";
+    case "stocks":
+      return "stock";
+    case "indices":
+      return "index";
+    case "futures":
+      return "futures";
+    default:
+      return "";
+  }
+}
+
+function guessDefaultExchange(market: Market) {
+  // You can tweak:
+  // - INDIA: NSE by default
+  // - FOREX: blank means "all exchanges"
+  return market === "INDIA" ? "NSE" : "";
+}
+
+/**
+ * TradingView symbol search (best-effort).
+ * If CORS blocks in browser, use symbolSearchProxyUrl (recommended).
+ */
+function useTradingViewSymbolSearch(args: {
+  market: Market;
+  q: string;
+  category: TvCategory;
+  proxyUrl?: string;
+}) {
+  const { market, q, category, proxyUrl } = args;
+
+  const [items, setItems] = useState<TvSymbol[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cacheRef = useRef(new Map<string, TvSymbol[]>());
+
+  useEffect(() => {
+    const text = q.trim();
+    if (!text) {
+      setItems([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    const tvType = mapCategoryToTvType(category);
+    const exchange = guessDefaultExchange(market);
+
+    const cacheKey = `${market}__${category}__${exchange}__${text.toLowerCase()}`;
+    const cached = cacheRef.current.get(cacheKey);
+    if (cached) {
+      setItems(cached);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function run() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Option A: Backend proxy (recommended)
+        if (proxyUrl) {
+          const u = new URL(proxyUrl, window.location.origin);
+          u.searchParams.set("text", text);
+          if (tvType) u.searchParams.set("type", tvType);
+          if (exchange) u.searchParams.set("exchange", exchange);
+
+          const res = await fetch(u.toString(), { credentials: "include" });
+          if (!res.ok) throw new Error(`Proxy failed (${res.status})`);
+          const json = await res.json();
+
+          const list: TvSymbol[] = Array.isArray(json) ? json : (json?.data ?? []);
+          if (!cancelled) {
+            cacheRef.current.set(cacheKey, list);
+            setItems(list);
+          }
+          return;
+        }
+
+        // Option B: Direct TradingView symbol search (may be CORS-blocked)
+        // (This is not an “official public API”; it can change anytime.)
+        const endpoint = new URL("https://symbol-search.tradingview.com/symbol_search/");
+        endpoint.searchParams.set("text", text);
+        endpoint.searchParams.set("hl", "1");
+        endpoint.searchParams.set("lang", "en");
+        endpoint.searchParams.set("domain", "production");
+        if (tvType) endpoint.searchParams.set("type", tvType);
+        if (exchange) endpoint.searchParams.set("exchange", exchange);
+
+        const res = await fetch(endpoint.toString());
+        if (!res.ok) throw new Error(`TradingView search failed (${res.status})`);
+        const json = await res.json();
+
+        const list: TvSymbol[] = Array.isArray(json) ? json : [];
+        if (!cancelled) {
+          cacheRef.current.set(cacheKey, list);
+          setItems(list);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setItems([]);
+          // Show real reason instead of “No matches”
+          setError(
+            e?.message ||
+              "Symbol search failed. If you see CORS in console, add a backend proxy."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [market, q, category, proxyUrl]);
+
+  return { items, loading, error };
+}
+
+/**
+ * TradingView widget embed component
+ * - This is DISPLAY ONLY; it won’t give you a JS price value.
+ * - Must be embedded via <script src="...">, not fetched like an API. :contentReference[oaicite:2]{index=2}
+ */
+function TradingViewMiniWidget({
+  tvSymbol,
+  height = 220,
+}: {
+  tvSymbol: string;
+  height?: number;
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    host.innerHTML = "";
+
+    const container = document.createElement("div");
+    container.className = "tradingview-widget-container";
+    const widgetDiv = document.createElement("div");
+    widgetDiv.className = "tradingview-widget-container__widget";
+    container.appendChild(widgetDiv);
+    host.appendChild(container);
+
+    // Use mini symbol overview (works well for current price + small chart)
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.async = true;
+    script.src =
+      "https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js";
+
+    // TradingView expects the JSON config as script textContent. :contentReference[oaicite:3]{index=3}
+    script.textContent = JSON.stringify({
+      symbol: tvSymbol,
+      width: "100%",
+      height,
+      locale: "en",
+      dateRange: "1D",
+      colorTheme: "dark",
+      isTransparent: true,
+      autosize: true,
+      largeChartUrl: "",
+    });
+
+    container.appendChild(script);
+
+    return () => {
+      if (host) host.innerHTML = "";
+    };
+  }, [tvSymbol, height]);
+
+  return <div ref={hostRef} className="w-full" />;
+}
+
 export default function CopyTradingExecutionPanel({
   enabledMarkets,
   accounts,
-  initialMarket,
+  initialMarket = "FOREX",
   showTradingViewWidget = true,
   toTradingViewSymbol,
+  symbolSearchProxyUrl,
 }: Props) {
-  // -----------------------------
-  // Market selection (plan-based)
-  // -----------------------------
-  const allowedMarkets = useMemo<Mode[]>(
-    () => (enabledMarkets || []).filter(Boolean),
-    [enabledMarkets]
-  );
-
-  const [market, setMarket] = useState<Mode>(() => {
-    if (initialMarket && allowedMarkets.includes(initialMarket)) return initialMarket;
-    return allowedMarkets[0] || "FOREX";
-  });
-
-  useEffect(() => {
-    if (!allowedMarkets.length) return;
-    if (!allowedMarkets.includes(market)) setMarket(allowedMarkets[0]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allowedMarkets.join("|")]);
-
   const [tab, setTab] = useState<"manual" | "automation">("manual");
 
-  // -----------------------------
-  // Accounts (filtered by market)
-  // -----------------------------
+  // Market selection inside execution panel (only if plan has both)
+  const [market, setMarket] = useState<Market>(initialMarket);
+
+  useEffect(() => {
+    if (!enabledMarkets?.length) return;
+    if (!enabledMarkets.includes(market)) setMarket(enabledMarkets[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledMarkets.join("|")]);
+
+  const canForex = enabledMarkets.includes("FOREX");
+  const canIndia = enabledMarkets.includes("INDIA");
+  const showMarketSwitch = enabledMarkets.length > 1;
+
   const marketAccounts = useMemo(
     () => accounts.filter((a) => a.market === market),
     [accounts, market]
   );
 
   // -----------------------------
-  // Manual trade targets
+  // Manual Trade State
   // -----------------------------
   const [targetAll, setTargetAll] = useState(true);
   const [targetIds, setTargetIds] = useState<Array<string>>([]);
 
-  // keep targets valid when market changes
-  useEffect(() => {
-    setTargetAll(true);
-    setTargetIds([]);
-  }, [market]);
-
   const targets = useMemo(() => {
     if (targetAll) return marketAccounts.map((a) => String(a.id));
-    return targetIds.filter((id) => marketAccounts.some((a) => String(a.id) === id));
+    return targetIds;
   }, [marketAccounts, targetAll, targetIds]);
 
   const [side, setSide] = useState<Side>("BUY");
-
-  // -----------------------------
-  // Symbol search + selection
-  // -----------------------------
   const [symbolQuery, setSymbolQuery] = useState("");
-  const [selectedSymbol, setSelectedSymbol] = useState<string>("");
+  const [selected, setSelected] = useState<TvSymbol | null>(null);
 
-  // close dropdown on outside click
-  const symbolBoxRef = useRef<HTMLDivElement | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  // Suggestions filters like TradingView (All / Forex / Crypto / ...)
+  const [tvCategory, setTvCategory] = useState<TvCategory>("all");
 
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      const el = symbolBoxRef.current;
-      if (!el) return;
-      if (!el.contains(e.target as Node)) setShowSuggestions(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
-
-  // Debounced symbol search
+  // debounce input
   const [debouncedQ, setDebouncedQ] = useState(symbolQuery);
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(symbolQuery.trim()), 300);
+    const t = setTimeout(() => setDebouncedQ(symbolQuery.trim()), 250);
     return () => clearTimeout(t);
   }, [symbolQuery]);
 
-  const {
-    data: symbolsRes,
-    isFetching: symbolsFetching,
-    refetch: refetchSymbols,
-  } = useSearchCopySymbolsQuery(
-    { mode: market, q: debouncedQ },
-    { skip: debouncedQ.length < 1 }
-  );
-
-  const symbolResults: Array<{ symbol: string; name?: string; tvSymbol?: string }> =
-    useMemo(() => {
-      const raw = (symbolsRes as any)?.data ?? symbolsRes ?? [];
-      return Array.isArray(raw) ? raw : [];
-    }, [symbolsRes]);
-
-  const resolvedSymbol = useMemo(() => {
-    return (selectedSymbol || symbolQuery).trim();
-  }, [selectedSymbol, symbolQuery]);
-
-  const tvSymbol = useMemo(() => {
-    if (!showTradingViewWidget) return "";
-    if (!resolvedSymbol) return "";
-
-    // If backend returns tvSymbol, prefer it
-    const hit = symbolResults.find((s) => s.symbol === resolvedSymbol);
-    if (hit?.tvSymbol) return hit.tvSymbol;
-
-    if (toTradingViewSymbol) return toTradingViewSymbol({ market, symbol: resolvedSymbol });
-
-    // safe fallback guess
-    if (resolvedSymbol.includes(":")) return resolvedSymbol;
-    if (market === "INDIA") return `NSE:${resolvedSymbol}`;
-    // FOREX fallback: EURUSD / XAUUSD
-    return `FX:${resolvedSymbol.replace("/", "").toUpperCase()}`;
-  }, [market, resolvedSymbol, showTradingViewWidget, symbolResults, toTradingViewSymbol]);
+  const { items: symbolResults, loading: symbolLoading, error: symbolError } =
+    useTradingViewSymbolSearch({
+      market,
+      q: debouncedQ,
+      category: tvCategory,
+      proxyUrl: symbolSearchProxyUrl,
+    });
 
   // -----------------------------
   // Manual Trade State (FOREX)
@@ -199,15 +346,16 @@ export default function CopyTradingExecutionPanel({
   const [inTriggerPrice, setInTriggerPrice] = useState<string>("");
   const [inValidity, setInValidity] = useState<"DAY" | "IOC">("DAY");
 
-  const [placeManualTrade, { isLoading: placing }] = usePlaceManualCopyTradeMutation();
+  const [placeManualTrade, { isLoading: placing }] =
+    usePlaceManualCopyTradeMutation();
 
   function resetManual() {
     setTargetAll(true);
     setTargetIds([]);
     setSide("BUY");
     setSymbolQuery("");
-    setSelectedSymbol("");
-    setShowSuggestions(false);
+    setSelected(null);
+    setTvCategory("all");
 
     setFxOrderType("MARKET");
     setFxLots("0.01");
@@ -225,9 +373,25 @@ export default function CopyTradingExecutionPanel({
     setInValidity("DAY");
   }
 
+  function getFinalSymbol() {
+    return (selected?.symbol || symbolQuery).trim();
+  }
+
+  function getTradingViewSymbol() {
+    const sym = getFinalSymbol();
+    if (!sym) return "";
+    if (toTradingViewSymbol) return toTradingViewSymbol({ market, symbol: sym, meta: selected || undefined });
+
+    // default mapping (adjust if you want BINANCE for crypto etc.)
+    if (sym.includes(":")) return sym;
+    return market === "INDIA"
+      ? `NSE:${sym.toUpperCase()}`
+      : `FX:${sym.replace("/", "").toUpperCase()}`;
+  }
+
   async function onPlaceManual() {
     try {
-      const sym = resolvedSymbol;
+      const sym = getFinalSymbol();
       if (!sym) return toast.error("Symbol is required");
       if (!targets.length) return toast.error("Select at least 1 account");
 
@@ -304,17 +468,15 @@ export default function CopyTradingExecutionPanel({
   // -----------------------------
   const {
     data: strategiesRes,
-    isLoading: strategiesLoading,
     isFetching: strategiesFetching,
     refetch: refetchStrategies,
-  } = useListMyCopyStrategiesQuery({ mode: market });
+  } = useListMyCopyStrategiesQuery({ mode: market } as any);
 
   const {
     data: linksRes,
-    isLoading: linksLoading,
     isFetching: linksFetching,
     refetch: refetchLinks,
-  } = useListMyCopyLinksQuery({ mode: market });
+  } = useListMyCopyLinksQuery({ mode: market } as any);
 
   const strategies: Array<any> = useMemo(() => {
     const raw = (strategiesRes as any)?.data ?? strategiesRes ?? [];
@@ -337,7 +499,6 @@ export default function CopyTradingExecutionPanel({
 
   async function onLink(strategy: any) {
     try {
-      if (!marketAccounts.length) return toast.error("Add at least one account first");
       const childIds = marketAccounts.map((a) => String(a.id));
       if (!childIds.length) return toast.error("No accounts available for this market");
 
@@ -370,7 +531,7 @@ export default function CopyTradingExecutionPanel({
     }
   }
 
-  const noMarketAccess = allowedMarkets.length === 0;
+  const tvSymbol = useMemo(() => getTradingViewSymbol(), [market, selected, symbolQuery]);
 
   return (
     <div className="space-y-6">
@@ -388,7 +549,6 @@ export default function CopyTradingExecutionPanel({
             <button
               type="button"
               onClick={() => {
-                refetchSymbols();
                 refetchStrategies();
                 refetchLinks();
               }}
@@ -400,50 +560,59 @@ export default function CopyTradingExecutionPanel({
           </div>
         </div>
 
-        {/* Market toggle (only if both allowed by plan) */}
-        {!noMarketAccess && allowedMarkets.length > 1 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {allowedMarkets.includes("FOREX") && (
-              <TopPill
-                active={market === "FOREX"}
+        {/* Market switch (if plan has both) */}
+        {showMarketSwitch && (
+          <div className="mt-4 inline-flex rounded-full bg-slate-950/40 p-1 text-xs">
+            {canForex && (
+              <button
+                type="button"
                 onClick={() => setMarket("FOREX")}
-                icon={<span className="text-xs font-bold">FX</span>}
-                label="FOREX"
-              />
+                className={clsx(
+                  "rounded-full px-4 py-2 transition",
+                  market === "FOREX"
+                    ? "bg-emerald-500 text-slate-950 font-semibold"
+                    : "text-slate-300 hover:bg-slate-800"
+                )}
+              >
+                FOREX
+              </button>
             )}
-            {allowedMarkets.includes("INDIA") && (
-              <TopPill
-                active={market === "INDIA"}
+            {canIndia && (
+              <button
+                type="button"
                 onClick={() => setMarket("INDIA")}
-                icon={<span className="text-xs font-bold">IN</span>}
-                label="INDIA"
-              />
+                className={clsx(
+                  "rounded-full px-4 py-2 transition",
+                  market === "INDIA"
+                    ? "bg-emerald-500 text-slate-950 font-semibold"
+                    : "text-slate-300 hover:bg-slate-800"
+                )}
+              >
+                INDIA
+              </button>
             )}
           </div>
         )}
 
         {/* Tabs */}
-        {!noMarketAccess && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            <TopPill active={tab === "manual"} onClick={() => setTab("manual")} icon={<Zap size={14} />} label="Manual Trade" />
-            <TopPill
-              active={tab === "automation"}
-              onClick={() => setTab("automation")}
-              icon={<Link2 size={14} />}
-              label="Automation (Strategy Link)"
-            />
-          </div>
-        )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <TopPill
+            active={tab === "manual"}
+            onClick={() => setTab("manual")}
+            icon={<Zap size={14} />}
+            label="Manual Trade"
+          />
+          <TopPill
+            active={tab === "automation"}
+            onClick={() => setTab("automation")}
+            icon={<Link2 size={14} />}
+            label="Automation (Strategy Link)"
+          />
+        </div>
       </div>
 
-      {noMarketAccess && (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-slate-300">
-          Your current plan does not include FOREX/INDIA execution access.
-        </div>
-      )}
-
       {/* Manual */}
-      {!noMarketAccess && tab === "manual" && (
+      {tab === "manual" && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -458,7 +627,7 @@ export default function CopyTradingExecutionPanel({
             <button
               type="button"
               onClick={onPlaceManual}
-              disabled={placing || !targets.length || !resolvedSymbol}
+              disabled={placing}
               className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
             >
               <Save size={16} />
@@ -471,73 +640,94 @@ export default function CopyTradingExecutionPanel({
             <div className="md:col-span-2 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
               <p className="text-xs font-semibold text-slate-200">Targets</p>
 
-              {marketAccounts.length === 0 ? (
-                <div className="mt-2 text-sm text-slate-400">
-                  No connected accounts for <span className="text-slate-200 font-semibold">{market}</span>.
-                  Add accounts first.
-                </div>
-              ) : (
-                <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-slate-200">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={targetAll}
-                      onChange={(e) => setTargetAll(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-700 bg-slate-950"
-                    />
-                    All connected accounts ({marketAccounts.length})
-                  </label>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-slate-200">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={targetAll}
+                    onChange={(e) => setTargetAll(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+                  />
+                  All connected accounts ({marketAccounts.length})
+                </label>
 
-                  {!targetAll && (
-                    <div className="w-full mt-2">
-                      <p className="text-[11px] text-slate-400 mb-2">Select accounts:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {marketAccounts.map((a) => {
-                          const id = String(a.id);
-                          const checked = targetIds.includes(id);
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => {
-                                setTargetIds((p) => {
-                                  if (p.includes(id)) return p.filter((x) => x !== id);
-                                  return [...p, id];
-                                });
-                              }}
-                              className={clsx(
-                                "rounded-full border px-3 py-1 text-xs transition",
-                                checked
-                                  ? "border-emerald-400 bg-emerald-500/15 text-emerald-200"
-                                  : "border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500"
-                              )}
-                            >
-                              {a.label}
-                            </button>
-                          );
-                        })}
-                      </div>
+                {!targetAll && (
+                  <div className="w-full mt-2">
+                    <p className="text-[11px] text-slate-400 mb-2">Select accounts:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {marketAccounts.map((a) => {
+                        const checked = targetIds.includes(String(a.id));
+                        return (
+                          <button
+                            key={String(a.id)}
+                            type="button"
+                            onClick={() => {
+                              setTargetIds((p) => {
+                                const id = String(a.id);
+                                if (p.includes(id)) return p.filter((x) => x !== id);
+                                return [...p, id];
+                              });
+                            }}
+                            className={clsx(
+                              "rounded-full border px-3 py-1 text-xs transition",
+                              checked
+                                ? "border-emerald-400 bg-emerald-500/15 text-emerald-200"
+                                : "border-slate-700 bg-slate-900/40 text-slate-200 hover:border-slate-500"
+                            )}
+                          >
+                            {a.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Symbol + Side */}
-            <div className="md:col-span-2" ref={symbolBoxRef}>
+            <div className="md:col-span-2">
               <label className="text-xs font-medium text-slate-300">Symbol *</label>
 
-              <div className="relative">
+              {/* Category pills like TradingView */}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {([
+                  ["all", "All"],
+                  ["forex", "Forex"],
+                  ["crypto", "Crypto"],
+                  ["indices", "Indices"],
+                  ["stocks", "Stocks"],
+                  ["futures", "Futures"],
+                ] as Array<[TvCategory, string]>).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setTvCategory(k)}
+                    className={clsx(
+                      "rounded-full border px-3 py-1 text-xs transition",
+                      tvCategory === k
+                        ? "border-slate-100 bg-slate-100 text-slate-950"
+                        : "border-slate-700 bg-slate-950/30 text-slate-200 hover:border-slate-500"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative mt-2">
                 <input
                   value={symbolQuery}
-                  onFocus={() => setShowSuggestions(true)}
                   onChange={(e) => {
                     setSymbolQuery(e.target.value);
-                    setSelectedSymbol("");
-                    setShowSuggestions(true);
+                    setSelected(null);
                   }}
                   className={inputBase}
-                  placeholder={market === "FOREX" ? "e.g. EURUSD / XAUUSD" : "e.g. RELIANCE / NIFTY24JANFUT"}
+                  placeholder={
+                    market === "FOREX"
+                      ? "Try: eurusd / gold / bitcoin"
+                      : "Try: reliance / nifty / tcs"
+                  }
                 />
 
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 flex items-center gap-2">
@@ -546,8 +736,7 @@ export default function CopyTradingExecutionPanel({
                       type="button"
                       onClick={() => {
                         setSymbolQuery("");
-                        setSelectedSymbol("");
-                        setShowSuggestions(false);
+                        setSelected(null);
                       }}
                       className="hover:text-slate-200"
                       title="Clear"
@@ -559,38 +748,74 @@ export default function CopyTradingExecutionPanel({
                 </div>
 
                 {/* Suggestions */}
-                {showSuggestions && symbolQuery.trim().length > 0 && symbolResults.length > 0 && (
+                {symbolQuery.trim().length > 0 && (
                   <div className="absolute z-20 mt-2 w-full rounded-xl border border-slate-800 bg-slate-950/95 shadow-lg overflow-hidden">
-                    <div className="max-h-64 overflow-auto">
-                      {symbolResults.slice(0, 12).map((s) => (
-                        <button
-                          key={s.symbol}
-                          type="button"
-                          onClick={() => {
-                            setSelectedSymbol(s.symbol);
-                            setSymbolQuery(s.symbol);
-                            setShowSuggestions(false);
-                          }}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-slate-900/60"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-slate-100 font-medium">{s.symbol}</span>
-                            {s.name && <span className="text-xs text-slate-400">{s.name}</span>}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-800 flex items-center justify-between">
-                      <span>{symbolsFetching ? "Searching..." : "Suggestions"}</span>
-                      <button type="button" onClick={() => refetchSymbols()} className="hover:text-slate-200">
+                    <div className="px-3 py-2 text-[11px] text-slate-400 border-b border-slate-800 flex items-center justify-between">
+                      <span>
+                        {symbolLoading ? "Searching…" : "Suggestions"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // quick re-trigger by “touching” query
+                          setSymbolQuery((p) => p + "");
+                        }}
+                        className="hover:text-slate-200 inline-flex items-center gap-2"
+                      >
+                        <RefreshCw size={12} />
                         Refresh
                       </button>
+                    </div>
+
+                    <div className="max-h-72 overflow-auto">
+                      {symbolError ? (
+                        <div className="px-3 py-3 text-xs text-rose-300">
+                          {symbolError}
+                          <div className="mt-2 text-[11px] text-slate-500">
+                            If console shows CORS, set <span className="text-slate-300">symbolSearchProxyUrl</span>.
+                          </div>
+                        </div>
+                      ) : symbolLoading ? (
+                        <div className="px-3 py-3 text-xs text-slate-400">Loading…</div>
+                      ) : symbolResults.length === 0 ? (
+                        <div className="px-3 py-3 text-xs text-slate-400">No matches</div>
+                      ) : (
+                        symbolResults.slice(0, 20).map((s, idx) => {
+                          const title = s.symbol || s.full_name || `Result ${idx + 1}`;
+                          return (
+                            <button
+                              key={`${title}-${idx}`}
+                              type="button"
+                              onClick={() => {
+                                setSelected(s);
+                                setSymbolQuery(s.symbol || "");
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-900/60"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-slate-100 font-medium truncate">
+                                    {s.symbol}
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 truncate">
+                                    {s.description || s.full_name || ""}
+                                  </div>
+                                </div>
+                                <div className="text-[11px] text-slate-300 shrink-0">
+                                  {(s.exchange || "").toUpperCase()}{" "}
+                                  {s.type ? `• ${String(s.type).toUpperCase()}` : ""}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* BUY/SELL */}
               <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"
@@ -618,17 +843,20 @@ export default function CopyTradingExecutionPanel({
                   SELL
                 </button>
               </div>
-
-              {/* TradingView live price widget (display-only) */}
-              {showTradingViewWidget && tvSymbol && (
-                <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-3">
-                  <div className="text-[11px] text-slate-400 mb-2">
-                    Live price (TradingView widget): <span className="text-slate-200 font-semibold">{tvSymbol}</span>
-                  </div>
-                  <TradingViewSymbolInfoWidget symbol={tvSymbol} />
-                </div>
-              )}
             </div>
+
+            {/* TradingView widget preview */}
+            {showTradingViewWidget && tvSymbol && (
+              <div className="md:col-span-2 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                <div className="text-[11px] text-slate-400 mb-2">
+                  Preview (TradingView): <span className="text-slate-200">{tvSymbol}</span>
+                </div>
+                <TradingViewMiniWidget tvSymbol={tvSymbol} height={220} />
+                <div className="mt-2 text-[11px] text-slate-500">
+                  Widget is display-only. For exact executable price, fetch quotes from your broker/MT5 server.
+                </div>
+              </div>
+            )}
 
             {/* Market-specific form */}
             {market === "FOREX" ? (
@@ -648,36 +876,65 @@ export default function CopyTradingExecutionPanel({
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Lots *</label>
-                  <input value={fxLots} onChange={(e) => setFxLots(e.target.value)} className={inputBase} placeholder="0.01" />
+                  <input
+                    value={fxLots}
+                    onChange={(e) => setFxLots(e.target.value)}
+                    className={inputBase}
+                    placeholder="0.01"
+                  />
                 </div>
 
                 {fxOrderType !== "MARKET" && (
                   <div className="md:col-span-2">
                     <label className="text-xs font-medium text-slate-300">Entry Price *</label>
-                    <input value={fxPrice} onChange={(e) => setFxPrice(e.target.value)} className={inputBase} placeholder="e.g. 1.09250" />
+                    <input
+                      value={fxPrice}
+                      onChange={(e) => setFxPrice(e.target.value)}
+                      className={inputBase}
+                      placeholder="e.g. 1.09250"
+                    />
                   </div>
                 )}
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Stop Loss (price)</label>
-                  <input value={fxSlPrice} onChange={(e) => setFxSlPrice(e.target.value)} className={inputBase} placeholder="optional" />
+                  <input
+                    value={fxSlPrice}
+                    onChange={(e) => setFxSlPrice(e.target.value)}
+                    className={inputBase}
+                    placeholder="optional"
+                  />
                 </div>
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Take Profit (price)</label>
-                  <input value={fxTpPrice} onChange={(e) => setFxTpPrice(e.target.value)} className={inputBase} placeholder="optional" />
+                  <input
+                    value={fxTpPrice}
+                    onChange={(e) => setFxTpPrice(e.target.value)}
+                    className={inputBase}
+                    placeholder="optional"
+                  />
                 </div>
 
                 <div className="md:col-span-2">
                   <label className="text-xs font-medium text-slate-300">Comment (optional)</label>
-                  <input value={fxComment} onChange={(e) => setFxComment(e.target.value)} className={inputBase} placeholder="e.g. Manual copy trade" />
+                  <input
+                    value={fxComment}
+                    onChange={(e) => setFxComment(e.target.value)}
+                    className={inputBase}
+                    placeholder="e.g. Manual copy trade"
+                  />
                 </div>
               </>
             ) : (
               <>
                 <div>
                   <label className="text-xs font-medium text-slate-300">Exchange</label>
-                  <select value={inExchange} onChange={(e) => setInExchange(e.target.value as any)} className={clsx(inputBase, "!mt-1")}>
+                  <select
+                    value={inExchange}
+                    onChange={(e) => setInExchange(e.target.value as any)}
+                    className={clsx(inputBase, "!mt-1")}
+                  >
                     <option value="NSE">NSE</option>
                     <option value="BSE">BSE</option>
                     <option value="NFO">NFO</option>
@@ -687,7 +944,11 @@ export default function CopyTradingExecutionPanel({
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Product</label>
-                  <select value={inProduct} onChange={(e) => setInProduct(e.target.value as any)} className={clsx(inputBase, "!mt-1")}>
+                  <select
+                    value={inProduct}
+                    onChange={(e) => setInProduct(e.target.value as any)}
+                    className={clsx(inputBase, "!mt-1")}
+                  >
                     <option value="MIS">MIS</option>
                     <option value="CNC">CNC</option>
                     <option value="NRML">NRML</option>
@@ -696,7 +957,11 @@ export default function CopyTradingExecutionPanel({
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Order Type</label>
-                  <select value={inOrderType} onChange={(e) => setInOrderType(e.target.value as any)} className={clsx(inputBase, "!mt-1")}>
+                  <select
+                    value={inOrderType}
+                    onChange={(e) => setInOrderType(e.target.value as any)}
+                    className={clsx(inputBase, "!mt-1")}
+                  >
                     <option value="MARKET">MARKET</option>
                     <option value="LIMIT">LIMIT</option>
                     <option value="SL">SL</option>
@@ -706,26 +971,45 @@ export default function CopyTradingExecutionPanel({
 
                 <div>
                   <label className="text-xs font-medium text-slate-300">Quantity *</label>
-                  <input value={inQty} onChange={(e) => setInQty(e.target.value)} className={inputBase} placeholder="e.g. 1" />
+                  <input
+                    value={inQty}
+                    onChange={(e) => setInQty(e.target.value)}
+                    className={inputBase}
+                    placeholder="e.g. 1"
+                  />
                 </div>
 
                 {(inOrderType === "LIMIT" || inOrderType === "SL") && (
                   <div>
                     <label className="text-xs font-medium text-slate-300">Price *</label>
-                    <input value={inPrice} onChange={(e) => setInPrice(e.target.value)} className={inputBase} placeholder="e.g. 2450.50" />
+                    <input
+                      value={inPrice}
+                      onChange={(e) => setInPrice(e.target.value)}
+                      className={inputBase}
+                      placeholder="e.g. 2450.50"
+                    />
                   </div>
                 )}
 
                 {(inOrderType === "SL" || inOrderType === "SL-M") && (
                   <div>
                     <label className="text-xs font-medium text-slate-300">Trigger Price *</label>
-                    <input value={inTriggerPrice} onChange={(e) => setInTriggerPrice(e.target.value)} className={inputBase} placeholder="e.g. 2448.00" />
+                    <input
+                      value={inTriggerPrice}
+                      onChange={(e) => setInTriggerPrice(e.target.value)}
+                      className={inputBase}
+                      placeholder="e.g. 2448.00"
+                    />
                   </div>
                 )}
 
                 <div className="md:col-span-2">
                   <label className="text-xs font-medium text-slate-300">Validity</label>
-                  <select value={inValidity} onChange={(e) => setInValidity(e.target.value as any)} className={clsx(inputBase, "!mt-1")}>
+                  <select
+                    value={inValidity}
+                    onChange={(e) => setInValidity(e.target.value as any)}
+                    className={clsx(inputBase, "!mt-1")}
+                  >
                     <option value="DAY">DAY</option>
                     <option value="IOC">IOC</option>
                   </select>
@@ -735,13 +1019,13 @@ export default function CopyTradingExecutionPanel({
           </div>
 
           <div className="mt-4 text-[11px] text-slate-500">
-            Backend receives one request and fans-out internally to all targets. UI does not send server/password for MT5.
+            Execution sends one request and backend fans out internally. UI does not send MT5 server/password.
           </div>
         </div>
       )}
 
       {/* Automation */}
-      {!noMarketAccess && tab === "automation" && (
+      {tab === "automation" && (
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
@@ -764,7 +1048,7 @@ export default function CopyTradingExecutionPanel({
             </button>
           </div>
 
-          {strategiesLoading || strategiesFetching ? (
+          {strategiesFetching ? (
             <div className="mt-4 text-sm text-slate-400">Loading strategies…</div>
           ) : strategies.length === 0 ? (
             <div className="mt-4 text-sm text-slate-300">No strategies found for your plan.</div>
@@ -780,8 +1064,12 @@ export default function CopyTradingExecutionPanel({
                           {s.name || s.strategyName || `Strategy #${s.id}`}
                         </div>
                         <div className="text-xs text-slate-400 mt-1">
-                          {linked ? <span className="text-emerald-300">Linked</span> : <span className="text-slate-300">Not linked</span>}
-                          {" "}• Market: <span className="text-slate-200 font-medium">{market}</span>
+                          {linked ? (
+                            <span className="text-emerald-300">Linked</span>
+                          ) : (
+                            <span className="text-slate-300">Not linked</span>
+                          )}{" "}
+                          • Market: <span className="text-slate-200 font-medium">{market}</span>
                         </div>
                       </div>
 
@@ -790,7 +1078,7 @@ export default function CopyTradingExecutionPanel({
                           <button
                             type="button"
                             onClick={() => onUnlink(String(s.id))}
-                            disabled={unlinking || linksLoading || linksFetching}
+                            disabled={unlinking || linksFetching}
                             className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-rose-400 disabled:opacity-60"
                           >
                             <Unlink2 size={14} />
@@ -800,7 +1088,7 @@ export default function CopyTradingExecutionPanel({
                           <button
                             type="button"
                             onClick={() => onLink(s)}
-                            disabled={linking || linksLoading || linksFetching}
+                            disabled={linking || linksFetching}
                             className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
                           >
                             <Link2 size={14} />
@@ -812,7 +1100,7 @@ export default function CopyTradingExecutionPanel({
 
                     {linked && (
                       <div className="mt-3 text-[11px] text-slate-500">
-                        Linked settings are stored in backend (lotMultiplier, reverseTrades, SL/TP copy, etc.). Add “Edit Settings” later as modal.
+                        Linked settings are stored in backend (lotMultiplier, reverseTrades, SL/TP copy, etc.).
                       </div>
                     )}
                   </div>
@@ -821,7 +1109,7 @@ export default function CopyTradingExecutionPanel({
             </div>
           )}
 
-          {(linksLoading || linksFetching) && <div className="mt-3 text-[11px] text-slate-500">Syncing links…</div>}
+          {linksFetching && <div className="mt-3 text-[11px] text-slate-500">Syncing links…</div>}
         </div>
       )}
     </div>
@@ -854,39 +1142,4 @@ function TopPill({
       {label}
     </button>
   );
-}
-
-/**
- * TradingView widget (display-only).
- * Docs: TradingView widget embedding pages. :contentReference[oaicite:2]{index=2}
- */
-function TradingViewSymbolInfoWidget({ symbol }: { symbol: string }) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    container.innerHTML = ""; // clear old widget
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-info.js";
-    script.async = true;
-
-    script.innerHTML = JSON.stringify({
-      symbol,
-      width: "100%",
-      locale: "in",
-      colorTheme: "dark",
-      isTransparent: true,
-    });
-
-    container.appendChild(script);
-
-    return () => {
-      // cleanup on unmount or symbol change
-      if (container) container.innerHTML = "";
-    };
-  }, [symbol]);
-
-  return <div ref={containerRef} />;
 }

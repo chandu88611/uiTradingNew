@@ -217,7 +217,19 @@ updateTradeStatus: builder.mutation<TradeStatusResponse, UpdateTradeStatusPayloa
       providesTags: ["User"],
     }),
 
-    
+    // services/userApi.ts (add this endpoint)
+updateExecutionProvider: builder.mutation<
+  { message: string; data?: any },
+  { executionProvider: "MT5" | "CTRADER" }
+>({
+  query: (body) => ({
+    url: "/me/execution-provider",
+    method: "PATCH",
+    body,
+  }),
+  invalidatesTags: ["User"],
+}),
+
 
     saveBillingDetails: builder.mutation<
       BillingDetailsResponse,
@@ -259,5 +271,6 @@ export const {
   // billing
   useGetBillingDetailsQuery,
   useSaveBillingDetailsMutation,
-  useUpdateTradeStatusMutation
+  useUpdateTradeStatusMutation,
+  useUpdateExecutionProviderMutation
 } = userApi;

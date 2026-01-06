@@ -310,7 +310,7 @@ const onBack = () => {
   };
 
   return (
-    <div className="min-h-screen px-4 pt-16 md:pt-28 md:px-6 pb-10 bg-slate-950 text-slate-100">
+    <div className="min-h-screen px-4   md:px-6 pb-10 bg-slate-950 text-slate-100">
       <div className="mx-auto w-full max-w-6xl space-y-8">
         {/* Header */}
       {/* Header */}

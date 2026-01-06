@@ -325,7 +325,7 @@ const UserDashboard: React.FC = () => {
   const pnlSeries = mockPnlSeries[timeframe];
 
   return (
-    <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="min-h-screen px-6   bg-slate-950 text-slate-100 px-4 py-6 sm:px-6 lg:px-8">
       {/* Top Bar */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
         <div>

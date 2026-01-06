@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+ import React, { useEffect, useMemo, useState } from "react";
 import {
   User as UserIcon,
   Mail,
@@ -7,7 +7,6 @@ import {
   Lock,
   CreditCard,
   MapPin,
-  Building2,
   Hash,
   Settings2,
   Save,
@@ -16,6 +15,8 @@ import {
   Crown,
   Zap,
   Calendar,
+  PlugZap,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Modal from "../../components/Model";
@@ -27,6 +28,7 @@ import {
   useSaveBillingDetailsMutation,
   useChangePasswordMutation,
   useUpdateTradeStatusMutation,
+  useUpdateExecutionProviderMutation,
 } from "../../services/userApi";
 
 import PineConnectorSettings, {
@@ -40,7 +42,6 @@ import CryptoDeltaSettings, {
 } from "./CryptoDeltaSettings";
 
 import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
-import CopyTradingSettings, {  } from "./CopyTradingSettings";
 
 /** helpers */
 const inputBase =
@@ -55,14 +56,21 @@ function pickBilling(res: any) {
   return res?.data || null;
 }
 
+type ExecProvider = "MT5" | "CTRADER";
+
 type TradeSettings = {
-  pineConnector?: PineConnectorSettingsValue;
+  pineConnector?: PineConnectorSettingsValue & {
+    /** ✅ New fields you asked for (backend can read later) */
+    executionProvider?: ExecProvider;
+    mt5LoginId?: string | number | null;
+    ctraderAccountId?: string | number | null;
+    ctraderAccessToken?: string | null;
+  };
   indianMarket?: IndianMarketSettingsValue;
   crypto?: CryptoDeltaSettingsValue;
-  // copyTrading?: CopyTradingSettingsValue;
 };
 
-type TradingTabKey = "pine" | "india" | "crypto" | "copy";
+type TradingTabKey = "pine" | "india" | "crypto";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -75,10 +83,9 @@ function moneyINRFromCents(cents?: number | null) {
 }
 
 export default function UserProfilePage() {
-  const [activeTab, setActiveTab] = useState<"profile" | "billing" | "trading" | "copy">(
-    "profile"
-  );
-
+  const [activeTab, setActiveTab] = useState<
+    "profile" | "billing" | "trading" | "copy"
+  >("profile");
 
   // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -120,9 +127,6 @@ export default function UserProfilePage() {
   const canUsePine =
     executionFlow === "PINE_CONNECTOR" || Boolean(plan?.featureFlags?.pineConnector);
 
-  const canUseRiskControls = Boolean(plan?.featureFlags?.riskControls);
-
-  // If later you add flags like indianMarket / cryptoDelta, hook them here
   const canUseIndian = Boolean(plan?.featureFlags?.indianMarket);
   const canUseCrypto = Boolean(plan?.featureFlags?.cryptoDelta);
 
@@ -136,29 +140,44 @@ export default function UserProfilePage() {
   }, [canUsePine, canUseIndian, canUseCrypto]);
 
   const [tradingTab, setTradingTab] = useState<TradingTabKey>("pine");
+const [updateExecutionProvider, { isLoading: switchingProvider }] =
+  useUpdateExecutionProviderMutation();
+
+
+  const onSelectProvider = async (next: "MT5" | "CTRADER") => {
+  // optimistic UI
+  const prev = execProvider;
+  setPine({ executionProvider: next });
+
+  try {
+    await updateExecutionProvider({ executionProvider: next }).unwrap();
+    toast.success(next === "MT5" ? "MT5 enabled" : "cTrader enabled");
+    // optional refresh to sync plan/subscription flags
+    refetchSub();
+    refetchMe();
+  } catch (err: any) {
+    // rollback
+    setPine({ executionProvider: prev });
+    toast.error(err?.data?.message || "Failed to switch execution provider");
+  }
+};
 
   // If plan changes and current tab is not allowed, auto-switch
   useEffect(() => {
     const allowedKeys = allowedTradingTabs.map((t) => t.key);
     if (allowedKeys.length === 0) return;
-    if (!allowedKeys.includes(tradingTab)) {
-      setTradingTab(allowedKeys[0]);
-    }
+    if (!allowedKeys.includes(tradingTab)) setTradingTab(allowedKeys[0]);
   }, [allowedTradingTabs, tradingTab]);
 
   // MUTATIONS
   const [updateMe, { isLoading: updatingMe }] = useUpdateMeMutation();
-  const [saveBilling, { isLoading: savingBilling }] =
-    useSaveBillingDetailsMutation();
-  const [changePassword, { isLoading: changingPass }] =
-    useChangePasswordMutation();
+  const [saveBilling, { isLoading: savingBilling }] = useSaveBillingDetailsMutation();
+  const [changePassword, { isLoading: changingPass }] = useChangePasswordMutation();
 
   const loading = meLoading || meFetching;
 
   const tradeSettings: TradeSettings = user?.tradeSettings || {};
-  const [localTradeSettings, setLocalTradeSettings] = useState<TradeSettings>(
-    tradeSettings
-  );
+  const [localTradeSettings, setLocalTradeSettings] = useState<TradeSettings>(tradeSettings);
 
   useEffect(() => {
     setLocalTradeSettings(tradeSettings);
@@ -168,12 +187,10 @@ export default function UserProfilePage() {
   // ✅ Webhook URL must be shown only if token exists
   const webhookToken: string | null = mySub?.webhookToken ?? null;
   const webhookUrl: string | null = webhookToken
-    ? `https://backend.globalalgotrading.com/tradingview/alert/${webhookToken}`
+    ? `https://backend.globalalgotrading.com/tradingview/alerts?token=${webhookToken}`
     : null;
 
-
-  const [updateTradeStatus, { isLoading: tradeStatusLoading }] =
-    useUpdateTradeStatusMutation();
+  const [updateTradeStatus] = useUpdateTradeStatusMutation();
 
   const serverAllowTrade: boolean = Boolean(
     (mySub as any)?.allowTrade ?? (mySub as any)?.executionEnabled
@@ -185,13 +202,22 @@ export default function UserProfilePage() {
     setAllowTradeLocal(serverAllowTrade);
   }, [serverAllowTrade]);
 
+  // ✅ Pine execution setup (MT5 / cTrader) stored inside tradeSettings.pineConnector
+  const pine = (localTradeSettings.pineConnector || {}) as any;
+  const execProvider: ExecProvider = (pine.executionProvider as ExecProvider) || "MT5";
 
-  const canUseCopyTrading = Boolean(
-    plan?.featureFlags?.tradeCopier || plan?.featureFlags?.copyTrading
-  );
+  const setPine = (patch: Record<string, any>) => {
+    setLocalTradeSettings((p) => ({
+      ...p,
+      pineConnector: {
+        ...(p.pineConnector as any),
+        ...patch,
+      },
+    }));
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white pt-16 md:pt-28 px-4 md:px-6 pb-10">
+    <div className="min-h-screen bg-slate-950 text-white   px-4 md:px-6 pb-10">
       <div className="mx-auto w-full max-w-5xl space-y-8">
         {/* HEADER */}
         <div>
@@ -213,21 +239,9 @@ export default function UserProfilePage() {
             active={activeTab === "billing"}
             onClick={() => setActiveTab("billing")}
             icon={<CreditCard size={16} />}
-            label="Billing"
+            label="Details"
           />
-          <TabButton
-            active={activeTab === "trading"}
-            onClick={() => setActiveTab("trading")}
-            icon={<CandlestickChart size={16} />}
-            label="Trading"
-          />
-
-          <TabButton
-            active={activeTab === "copy"}
-            onClick={() => setActiveTab("copy")}
-            icon={<Zap size={16} />}
-            label="Copy Trading"
-          />
+      
 
           <div className="flex-1" />
           <button
@@ -259,9 +273,7 @@ export default function UserProfilePage() {
               <>
                 <section className={sectionBase}>
                   <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-xl font-semibold">
-                      Personal Information
-                    </h2>
+                    <h2 className="text-xl font-semibold">Personal Information</h2>
 
                     <button
                       onClick={() => setEditProfileOpen(true)}
@@ -273,39 +285,22 @@ export default function UserProfilePage() {
                   </div>
 
                   <div className="mt-6 grid gap-6 sm:grid-cols-2">
-                    <InfoRow
-                      label="Full Name"
-                      value={user?.name || "—"}
-                      icon={<UserIcon />}
-                    />
-                    <InfoRow
-                      label="Email"
-                      value={user?.email || "—"}
-                      icon={<Mail />}
-                    />
+                    <InfoRow label="Full Name" value={user?.name || "—"} icon={<UserIcon />} />
+                    <InfoRow label="Email" value={user?.email || "—"} icon={<Mail />} />
                     <InfoRow
                       label="Verification"
                       value={user?.isEmailVerified ? "Verified" : "Not Verified"}
                       icon={<ShieldCheck />}
-                      valueClass={
-                        user?.isEmailVerified
-                          ? "text-emerald-300"
-                          : "text-rose-300"
-                      }
+                      valueClass={user?.isEmailVerified ? "text-emerald-300" : "text-rose-300"}
                     />
-                    <InfoRow
-                      label="User ID"
-                      value={String(user?.id ?? "—")}
-                      icon={<Hash />}
-                    />
+                    <InfoRow label="User ID" value={String(user?.id ?? "—")} icon={<Hash />} />
                   </div>
                 </section>
 
                 <section className={sectionBase}>
                   <h2 className="text-xl font-semibold">Security</h2>
                   <p className="mt-2 text-sm text-slate-400">
-                    Keep your password strong. If you logged in via Google, you
-                    can still set a password later.
+                    Keep your password strong. If you logged in via Google, you can still set a password later.
                   </p>
                 </section>
               </>
@@ -313,363 +308,60 @@ export default function UserProfilePage() {
 
             {/* BILLING TAB */}
             {activeTab === "billing" && (
-              <>
-                <section className={sectionBase}>
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                      <h2 className="text-xl font-semibold">Billing Details</h2>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Only PAN + address are required for invoices. Bank details are not collected ✅
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => setEditBillingOpen(true)}
-                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-                    >
-                      <Pencil size={15} />
-                      Edit Billing
-                    </button>
-                  </div>
-
-                  {billingLoading || billingFetching ? (
-                    <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
-                  ) : (
-                    <div className="mt-6 grid gap-6 sm:grid-cols-2">
-                      <InfoRow
-                        label="PAN Number"
-                        value={billing?.panNumber || "—"}
-                        icon={<Hash />}
-                      />
-
-                      <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-                            <MapPin />
-                          </div>
-
-                          <div>
-                            <p className="text-xs text-slate-400">Address</p>
-
-                            {billing ? (
-                              <div className="mt-1 space-y-1 text-sm text-slate-200">
-                                <div>{billing.addressLine1}</div>
-                                {billing.addressLine2 && <div>{billing.addressLine2}</div>}
-                                <div>
-                                  {billing.city}, {billing.state}
-                                </div>
-                                <div className="font-medium">{billing.pincode}</div>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-slate-400">—</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  )}
-                </section>
-              </>
-            )}
-
-
-            {/* TRADING TAB */}
-            {activeTab === "trading" && (
               <section className={sectionBase}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div>
-                    <h2 className="text-xl font-semibold flex items-center gap-2">
-                      <CandlestickChart size={18} />
-                      Trading Settings
-                    </h2>
+                    <h2 className="text-xl font-semibold">Billing Details</h2>
                     <p className="text-xs text-slate-400 mt-1">
-                      This section changes automatically based on your active plan.
+                      Only PAN + address are required for invoices. Bank details are not collected ✅
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {mySub && <a href="/trading/dashboard">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-700"
-                      >
-                        <CandlestickChart size={16} />
-                        Open Trading Workspace
-                      </button>
-                    </a>}
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await updateMe({
-                            tradeSettings: localTradeSettings,
-                          } as any).unwrap();
-                          toast.success("Trading settings saved");
-                          refetchMe();
-                        } catch (err: any) {
-                          toast.error(
-                            err?.data?.message || "Failed to save trading settings"
-                          );
-                        }
-                      }}
-                      className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-                    >
-                      <Save size={16} />
-                      Save Trading
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => setEditBillingOpen(true)}
+                    className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                  >
+                    <Pencil size={15} />
+                    Edit Billing
+                  </button>
                 </div>
 
-                {/* ✅ Current Plan Card */}
-                <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div>
-                      <p className="text-sm font-semibold flex items-center gap-2">
-                        <Crown size={16} className="text-yellow-300" />
-                        Current Plan
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Your trading features depend on this plan.
-                      </p>
-                    </div>
+                {billingLoading || billingFetching ? (
+                  <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
+                ) : (
+                  <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                    <InfoRow label="PAN Number" value={billing?.panNumber || "—"} icon={<Hash />} />
 
-                    <button
-                      onClick={() => refetchSub()}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
-                    >
-                      <RefreshCw size={14} />
-                      {subLoading || subFetching ? "Refreshing..." : "Refresh"}
-                    </button>
-                  </div>
-
-                  {subLoading || subFetching ? (
-                    <div className="mt-4 text-sm text-slate-400">
-                      Loading subscription…
-                    </div>
-                  ) : !mySub ? (
-                    <div className="mt-4 text-sm text-slate-300">
-                      No active subscription found. Please subscribe to enable execution features.
-                    </div>
-                  ) : (
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <PlanPill
-                        icon={<Zap size={14} />}
-                        label="Plan"
-                        value={plan?.name || plan?.planCode || "—"}
-                      />
-                      <PlanPill
-                        icon={<Hash size={14} />}
-                        label="Category"
-                        value={plan?.category || "—"}
-                      />
-                      <PlanPill
-                        icon={<CreditCard size={14} />}
-                        label="Price"
-                        value={`${moneyINRFromCents(plan?.priceCents)} / ${plan?.interval || "—"}`}
-                      />
-                      <PlanPill
-                        icon={<ShieldCheck size={14} />}
-                        label="Execution"
-                        value={`${plan?.executionFlow || "—"} • ${mySub?.executionEnabled ? "Enabled" : "Disabled"}`}
-                      />
-                      <PlanPill
-                        icon={<Settings2 size={14} />}
-                        label="Max Accounts"
-                        value={String(plan?.maxConnectedAccounts ?? "—")}
-                      />
-                      <PlanPill
-                        icon={<Settings2 size={14} />}
-                        label="Max Strategies"
-                        value={String(plan?.maxActiveStrategies ?? "—")}
-                      />
-                      <PlanPill
-                        icon={<Settings2 size={14} />}
-                        label="Max Lot/Trade"
-                        value={String(plan?.maxLotPerTrade ?? "—")}
-                      />
-                      <PlanPill
-                        icon={<Calendar size={14} />}
-                        label="Valid Until"
-                        value={mySub?.endDate ? new Date(mySub.endDate).toLocaleString() : "—"}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* ✅ Trading sub-tabs only if allowed by plan */}
-                <div className="mt-6 flex flex-wrap gap-2">
-                  {allowedTradingTabs.length === 0 ? (
-                    <div className="text-sm text-slate-300">
-                      Your plan has no trading settings enabled.
-                    </div>
-                  ) : (
-                    allowedTradingTabs.map((t) => (
-                      <SubTab
-                        key={t.key}
-                        active={tradingTab === t.key}
-                        onClick={() => setTradingTab(t.key)}
-                        label={t.label}
-                      />
-                    ))
-                  )}
-                </div>
-
-                <div className="mt-6">
-                  {/* ✅ PINE CONNECTOR */}
-                  {tradingTab === "pine" && canUsePine && (
-                    <div className="space-y-6">
-                      {/* Webhook Card */}
-                      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-                        <div className="flex items-start justify-between gap-4 flex-wrap">
-                          <div>
-                            <p className="text-sm font-semibold flex items-center gap-2">
-                              <ShieldCheck size={16} className="text-emerald-400" />
-                              TradingView Webhook URL
-                            </p>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Paste this in TradingView Alert → Webhook URL.
-                            </p>
-                          </div>
-
-                          <button
-                            onClick={() => refetchSub()}
-                            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-xs hover:bg-slate-700"
-                          >
-                            <RefreshCw size={14} />
-                            {subLoading || subFetching ? "Refreshing..." : "Refresh"}
-                          </button>
+                    <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
+                          <MapPin />
                         </div>
 
-                        <div className="mt-4">
-                          {!mySub ? (
-                            <div className="text-sm text-slate-300">
-                              No active subscription found.
-                            </div>
-                          ) : !webhookToken ? (
-                            <div className="text-sm text-yellow-200">
-                              Your plan supports Pine Connector, but webhook token is not generated yet.
-                              <div className="mt-1 text-xs text-slate-400">
-                                If this is a new purchase, refresh after a few seconds. If it still stays null, backend should generate webhookToken for active subscriptions.
+                        <div>
+                          <p className="text-xs text-slate-400">Address</p>
+
+                          {billing ? (
+                            <div className="mt-1 space-y-1 text-sm text-slate-200">
+                              <div>{billing.addressLine1}</div>
+                              {billing.addressLine2 && <div>{billing.addressLine2}</div>}
+                              <div>
+                                {billing.city}, {billing.state}
                               </div>
+                              <div className="font-medium">{billing.pincode}</div>
                             </div>
                           ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  readOnly
-                                  value={webhookUrl || ""}
-                                  className={`${inputBase} !mt-0`}
-                                />
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await navigator.clipboard.writeText(webhookUrl || "");
-                                      toast.success("Webhook URL copied");
-                                    } catch {
-                                      toast.error("Failed to copy");
-                                    }
-                                  }}
-                                  className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
-                                >
-                                  Copy
-                                </button>
-                              </div>
-                              <div className="text-[11px] text-slate-400">
-                                Tip: TradingView alert must enable “Webhook URL” and “Send alert to webhook URL”.
-                              </div>
-                            </div>
+                            <p className="text-sm text-slate-400">—</p>
                           )}
                         </div>
                       </div>
-
-                      <PineConnectorSettings
-                        value={localTradeSettings.pineConnector}
-                        onChange={(next) =>
-                          setLocalTradeSettings((p) => ({
-                            ...p,
-                            pineConnector: next,
-                          }))
-                        }
-                        allowTrade={allowTradeLocal}
-                        setAllowTrade={setAllowTradeLocal}
-                        onRefreshSubscription={refetchSub}
-                      />
                     </div>
-                  )}
-
-                  {/* INDIA */}
-                  {tradingTab === "india" && canUseIndian && (
-                    <IndianMarketSettings
-                      value={localTradeSettings.indianMarket}
-                      onChange={(next) =>
-                        setLocalTradeSettings((p) => ({
-                          ...p,
-                          indianMarket: next,
-                        }))
-                      }
-                    />
-                  )}
-
-                  {/* CRYPTO */}
-                  {tradingTab === "crypto" && canUseCrypto && (
-                    <CryptoDeltaSettings
-                      value={localTradeSettings.crypto}
-                      onChange={(next) =>
-                        setLocalTradeSettings((p) => ({ ...p, crypto: next }))
-                      }
-                    />
-                  )}
-                </div>
-
-                {/* Small note */}
-                <p className="mt-6 text-[11px] text-slate-500">
-                  Note: Since your plan is <span className="text-slate-200 font-semibold">{plan?.name || plan?.planCode}</span>,
-                  only the supported settings are shown.
-                </p>
+                  </div>
+                )}
               </section>
             )}
 
-           {/* COPY TRADING TAB */}
-{activeTab === "copy" && (
-  <section className={sectionBase}>
-    <div className="flex items-center justify-between gap-3 flex-wrap">
-      <div>
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <Zap size={18} />
-          Copy Trading Settings
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Add accounts based on your plan (India: broker token • Forex: MT5/cTrader).
-        </p>
-      </div>
-    </div>
-
-    {!mySub ? (
-      <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
-        No active subscription found. Please subscribe to enable copy trading.
-      </div>
-    ) : !canUseCopyTrading ? (
-      <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-300">
-        Your current plan does not include{" "}
-        <span className="text-slate-100 font-semibold">Copy Trading</span>.
-      </div>
-    ) : (
-      <div className="mt-6">
-        <CopyTradingSettings
-          mode={plan?.category === "INDIA" ? "INDIA" : "FOREX"}
-        />
-      </div>
-    )}
-
-    <p className="mt-6 text-[11px] text-slate-500">
-      Tip: India plans use broker token per account. Forex plans use MT5/cTrader accounts.
-    </p>
-  </section>
-)}
-
-
+       
           </>
         )}
       </div>
@@ -746,46 +438,21 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${active
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
+        active
           ? "bg-emerald-500 text-slate-950 border-emerald-500"
           : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-        }`}
+      }`}
     >
       {icon}
       {label}
     </button>
   );
 }
+ 
 
-function SubTab({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${active
-          ? "bg-slate-100 text-slate-950 border-slate-100"
-          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-        }`}
-    >
-      <Settings2 size={16} />
-      {label}
-    </button>
-  );
-}
 
-function InfoRow({
-  label,
-  value,
-  icon,
-  valueClass = "",
-}: any) {
+function InfoRow({ label, value, icon, valueClass = "" }: any) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
@@ -799,27 +466,7 @@ function InfoRow({
   );
 }
 
-function PlanPill({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-      <div className="h-9 w-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] text-slate-400">{label}</p>
-        <p className="text-sm font-semibold text-slate-100 truncate">{value}</p>
-      </div>
-    </div>
-  );
-}
+ 
 
 function ProfileSkeleton() {
   return (
@@ -828,10 +475,7 @@ function ProfileSkeleton() {
         <div className="h-5 w-52 bg-slate-800 rounded" />
         <div className="mt-6 grid gap-6 sm:grid-cols-2">
           {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-slate-800 bg-slate-900/60 p-4"
-            >
+            <div key={i} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <div className="h-4 w-28 bg-slate-800 rounded" />
               <div className="h-4 w-40 bg-slate-800 rounded mt-3" />
             </div>
@@ -842,7 +486,7 @@ function ProfileSkeleton() {
   );
 }
 
-/* ---------------- Forms (same as your current) ---------------- */
+/* ---------------- Forms ---------------- */
 
 function ProfileEditForm({
   user,
@@ -880,11 +524,7 @@ function ProfileEditForm({
         </Field>
 
         <Field label="Email">
-          <input
-            value={email}
-            disabled
-            className={`${inputBase} opacity-70 cursor-not-allowed`}
-          />
+          <input value={email} disabled className={`${inputBase} opacity-70 cursor-not-allowed`} />
         </Field>
       </div>
 
@@ -911,11 +551,6 @@ function BillingEditForm({
 }) {
   const [form, setForm] = useState({
     panNumber: billing?.panNumber ?? "",
-    accountHolderName: billing?.accountHolderName ?? "",
-    accountNumber: billing?.accountNumber ?? "",
-    ifscCode: billing?.ifscCode ?? "",
-    bankName: billing?.bankName ?? "",
-    branch: billing?.branch ?? "",
     addressLine1: billing?.addressLine1 ?? "",
     addressLine2: billing?.addressLine2 ?? "",
     city: billing?.city ?? "",
@@ -926,11 +561,6 @@ function BillingEditForm({
   useEffect(() => {
     setForm({
       panNumber: billing?.panNumber ?? "",
-      accountHolderName: billing?.accountHolderName ?? "",
-      accountNumber: billing?.accountNumber ?? "",
-      ifscCode: billing?.ifscCode ?? "",
-      bankName: billing?.bankName ?? "",
-      branch: billing?.branch ?? "",
       addressLine1: billing?.addressLine1 ?? "",
       addressLine2: billing?.addressLine2 ?? "",
       city: billing?.city ?? "",
@@ -957,51 +587,6 @@ function BillingEditForm({
             placeholder="ABCDE1234F"
           />
         </Field>
-
-        {/* <Field label="Account Holder Name">
-          <input
-            value={form.accountHolderName}
-            onChange={(e) => set("accountHolderName", e.target.value)}
-            className={inputBase}
-            placeholder="Name as per bank"
-          />
-        </Field>
-
-        <Field label="Account Number">
-          <input
-            value={form.accountNumber}
-            onChange={(e) => set("accountNumber", e.target.value)}
-            className={inputBase}
-            placeholder="XXXXXX"
-          />
-        </Field>
-
-        <Field label="IFSC Code">
-          <input
-            value={form.ifscCode}
-            onChange={(e) => set("ifscCode", e.target.value)}
-            className={inputBase}
-            placeholder="HDFC0001234"
-          />
-        </Field>
-
-        <Field label="Bank Name">
-          <input
-            value={form.bankName}
-            onChange={(e) => set("bankName", e.target.value)}
-            className={inputBase}
-            placeholder="HDFC / SBI / ICICI..."
-          />
-        </Field>
-
-        <Field label="Branch (Optional)">
-          <input
-            value={form.branch}
-            onChange={(e) => set("branch", e.target.value)}
-            className={inputBase}
-            placeholder="Branch name"
-          />
-        </Field> */}
       </div>
 
       <div className="mt-6">
@@ -1077,17 +662,12 @@ function ChangePasswordForm({
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
-  const canSubmit =
-    currentPassword.length >= 1 &&
-    newPassword.length >= 6 &&
-    newPassword === confirm;
+  const canSubmit = currentPassword.length >= 1 && newPassword.length >= 6 && newPassword === confirm;
 
   return (
     <div className="text-slate-100">
       <h3 className="text-lg font-semibold mb-1">Change Password</h3>
-      <p className="text-xs text-slate-400 mb-5">
-        Use a strong password. Minimum 6 characters.
-      </p>
+      <p className="text-xs text-slate-400 mb-5">Use a strong password. Minimum 6 characters.</p>
 
       <div className="space-y-4">
         <Field label="Current Password">
@@ -1158,10 +738,7 @@ function FooterActions({
 }) {
   return (
     <div className="mt-6 flex justify-end gap-2">
-      <button
-        onClick={onClose}
-        className="rounded-full bg-slate-700 px-4 py-2 text-sm hover:bg-slate-600"
-      >
+      <button onClick={onClose} className="rounded-full bg-slate-700 px-4 py-2 text-sm hover:bg-slate-600">
         Cancel
       </button>
 
@@ -1174,20 +751,6 @@ function FooterActions({
       </button>
     </div>
   );
-}
-
-function maskAccount(n: string) {
-  const s = String(n);
-  if (s.length <= 4) return s;
-  return `${"•".repeat(Math.max(0, s.length - 4))}${s.slice(-4)}`;
-}
-
-function formatAddress(b: any) {
-  if (!b) return "—";
-  const parts = [b.addressLine1, b.addressLine2, b.city, b.state, b.pincode].filter(
-    Boolean
-  );
-  return parts.length ? parts.join(", ") : "—";
 }
 
 function normalizeEmptyToNull(obj: Record<string, any>) {

@@ -8,11 +8,9 @@ export type TradingAccountStatus = "pending" | "verified" | "blocked";
 export type TradingAccount = {
   id: number;
 
-  // new-ish fields (if your backend stores them)
   market?: MarketCategory;
   forexPlatform?: ForexPlatform;
 
-  // your table fields may be snake_case in response
   broker: string;
 
   label?: string | null;
@@ -64,7 +62,10 @@ export const tradingAccountsApi = baseApi
       }),
 
       // ✅ POST /trading-accounts
-      createTradingAccount: builder.mutation<TradingAccount, CreateTradingAccountBody>({
+      createTradingAccount: builder.mutation<
+        TradingAccount,
+        CreateTradingAccountBody
+      >({
         query: (body) => ({
           url: "/trading-accounts",
           method: "POST",
@@ -75,7 +76,10 @@ export const tradingAccountsApi = baseApi
       }),
 
       // ✅ DELETE /trading-accounts/:id
-      deleteTradingAccount: builder.mutation<{ deleted?: boolean; id?: number } | any, { id: number }>({
+      deleteTradingAccount: builder.mutation<
+        { deleted?: boolean; id?: number } | any,
+        { id: number }
+      >({
         query: ({ id }) => ({
           url: `/trading-accounts/${id}`,
           method: "DELETE",
@@ -93,6 +97,17 @@ export const tradingAccountsApi = baseApi
         transformResponse: (res: any) => unwrapData<any>(res),
         invalidatesTags: ["TradingAccounts"],
       }),
+
+      // ✅ PATCH /trading-accounts/:id
+      patchTradingAccount: builder.mutation<any, { id: number; isEnabled: boolean }>({
+        query: ({ id, ...body }) => ({
+          url: `/trading-accounts/${id}`,
+          method: "PATCH",
+          body,
+        }),
+        transformResponse: (res: any) => unwrapData<any>(res),
+        invalidatesTags: ["TradingAccounts"],
+      }),
     }),
     overrideExisting: true,
   });
@@ -103,4 +118,5 @@ export const {
   useCreateTradingAccountMutation,
   useDeleteTradingAccountMutation,
   useVerifyTradingAccountMutation,
+  usePatchTradingAccountMutation,
 } = tradingAccountsApi;

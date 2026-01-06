@@ -5,7 +5,7 @@ import { publicRoutes, userProtectedRoutes } from "./routes";
 
 import PublicLayout from "./layouts/PublicLayout";
 import RequireUserAuth from "./RequireAuth";
-
+import UserDashboardLayout from "./layouts/UserSettingsLayout";
 const Skeleton = () => <div>Loading…</div>;
 
 const Router = () => {
@@ -26,8 +26,10 @@ const Router = () => {
           />
         ))}
 
-        {/* Protected routes under "/" */}
-        <Route element={<RequireUserAuth />}>
+  
+      </Route>
+      <Route element={<RequireUserAuth />}>
+        <Route element={<UserDashboardLayout />}>
           {userProtectedRoutes.map((route, i) => (
             <Route
               key={`user-${i}`}
@@ -41,7 +43,6 @@ const Router = () => {
           ))}
         </Route>
       </Route>
-
       {/* 404 → go to home ("/") */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

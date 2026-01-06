@@ -90,9 +90,11 @@ const pickHighlights = (p: SubscriptionPlan) => {
   const ff: any = (p.featureFlags || {}) as any;
   const highlights: string[] = [];
 
-  // Keep these user-facing and non-technical
   if (ff.webhookAccess) highlights.push("Automation signals");
-  if (ff.tradeCopier) highlights.push("Copy trading");
+
+  // ✅ fix
+  if (ff.copyTrading || ff.tradeCopier) highlights.push("Copy trading");
+
   if (ff.advancedRisk) highlights.push("Advanced risk controls");
   if (ff.priorityExecution) highlights.push("Priority processing");
   if (ff.vpsIncluded) highlights.push("Dedicated VPS");
@@ -106,6 +108,7 @@ const pickHighlights = (p: SubscriptionPlan) => {
 
   return highlights.slice(0, 6);
 };
+
 
 const sortByTier = (a: SubscriptionPlan, b: SubscriptionPlan) => {
   const tierRank: Record<string, number> = {
@@ -288,42 +291,49 @@ const SubscriptionWizardPage: React.FC = () => {
     });
   }, [allPlans, search]);
 
-  const safeFF = (p: SubscriptionPlan) => (p.featureFlags || {}) as any;
+const safeFF = (p: SubscriptionPlan) => (p.featureFlags || {}) as any;
 
-  // ✅ Tabs (no tech wording, only business grouping)
-  const bundlePlans = useMemo(
-    () => filteredPlans.filter((p) => Boolean(safeFF(p)?.bundle)).sort(sortByTier),
-    [filteredPlans]
-  );
+const isBundlePlan = (p: SubscriptionPlan) => Boolean(safeFF(p)?.bundle);
 
-  const copyPlans = useMemo(
-    () => filteredPlans.filter((p) => Boolean(safeFF(p)?.tradeCopier)).sort(sortByTier),
-    [filteredPlans]
-  );
+// ✅ copyTrading is the real flag in your data
+// keep tradeCopier fallback for backward compatibility
+const isCopyPlan = (p: SubscriptionPlan) =>
+  Boolean(safeFF(p)?.copyTrading || safeFF(p)?.tradeCopier || safeFF(p)?.role);
 
-  const forexPlans = useMemo(
-    () =>
-      filteredPlans
-        .filter((p) => p.category === "FOREX" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
-        .sort(sortByTier),
-    [filteredPlans]
-  );
+const bundlePlans = useMemo(
+  () => filteredPlans.filter((p) => isBundlePlan(p)).sort(sortByTier),
+  [filteredPlans]
+);
 
-  const indiaPlans = useMemo(
-    () =>
-      filteredPlans
-        .filter((p) => p.category === "INDIA" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
-        .sort(sortByTier),
-    [filteredPlans]
-  );
+const copyPlans = useMemo(
+  () => filteredPlans.filter((p) => isCopyPlan(p) && !isBundlePlan(p)).sort(sortByTier),
+  [filteredPlans]
+);
 
-  const cryptoPlans = useMemo(
-    () =>
-      filteredPlans
-        .filter((p) => p.category === "CRYPTO" && !safeFF(p)?.bundle && !safeFF(p)?.tradeCopier)
-        .sort(sortByTier),
-    [filteredPlans]
-  );
+const forexPlans = useMemo(
+  () =>
+    filteredPlans
+      .filter((p) => p.category === "FOREX" && !isBundlePlan(p) && !isCopyPlan(p))
+      .sort(sortByTier),
+  [filteredPlans]
+);
+
+const indiaPlans = useMemo(
+  () =>
+    filteredPlans
+      .filter((p) => p.category === "INDIA" && !isBundlePlan(p) && !isCopyPlan(p))
+      .sort(sortByTier),
+  [filteredPlans]
+);
+
+const cryptoPlans = useMemo(
+  () =>
+    filteredPlans
+      .filter((p) => p.category === "CRYPTO" && !isBundlePlan(p) && !isCopyPlan(p))
+      .sort(sortByTier),
+  [filteredPlans]
+);
+
 
   // ✅ Billing
   const { data: billingRes, isLoading: loadingBilling } = useGetBillingDetailsQuery();

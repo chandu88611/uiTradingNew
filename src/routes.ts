@@ -50,9 +50,21 @@ const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
 const Subscriptions = lazy(
   () => import("./pages/subscriptions/SubscriptionWizardPage"),
 );
+
+const ConnectBroker = lazy(
+  () => import("./pages/brokers/ConnectIndiaBrokerPage"),
+);
 const TradingDashboard = lazy(
   () => import("./pages/trading/BrokerDashboardPage"),
 );
+
+const ForexTrading = lazy(
+  () => import("./pages/trading/ForexTradingPage"),
+);
+const IndianTrading = lazy(
+  () => import("./pages/trading/IndianTradingPage"),
+);
+
 const SubscriptionTerms = lazy(
   () => import("./pages/subscriptions/SubscriptionTerms"),
 );
@@ -77,6 +89,18 @@ const SubscriptionInvoiceDetail = lazy(
 const SubscriptionPayment = lazy(
   () => import("./pages/subscriptions/SubscrptionPayment"),
 );
+// USER PAGES
+const PlanBillingPage = lazy(() => import("./pages/user/PlanBillingPage"));
+
+
+
+// DASHBOARD (new split)
+// const UserDashboardLayout = lazy(() => import("./layouts/UserDashboardLayout"));
+// const DashboardHome = lazy(() => import("./pages/dashboard/DashboardHome"));
+// const ProfilePage = lazy(() => import("./pages/dashboard/ProfilePage"));
+// const ApiTradingPage = lazy(() => import("./pages/dashboard/ApiTradingPage"));
+// const TradingWorkspacePage = lazy(() => import("./pages/dashboard/TradingWorkspacePage"));
+// const CopyTradingPage = lazy(() => import("./pages/dashboard/CopyTradingPage"));
 
 // ------------------------
 // PUBLIC ROUTES (no login needed)
@@ -93,6 +117,7 @@ export const publicRoutes: AppRoute[] = [
 
   // marketing/landing version of copy-trading if you want it public
   { path: "/pricing", element: Subscriptions },
+  { path: "/connect-broker", element: ConnectBroker },
 
 ];
 
@@ -130,7 +155,10 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/subscriptions/invoices/:id", element: SubscriptionInvoiceDetail },
   { path: "/subscriptions/payment", element: SubscriptionPayment },
   { path: "/trading/dashboard", element: TradingDashboard },
+  { path: "/forex-trading", element: ForexTrading },
+  { path: "/indian-trading", element: IndianTrading },
 
   { path: "/copy-trading", element: CopyTrading },
-  
+  { path: "/plan", element: PlanBillingPage },
+
 ];

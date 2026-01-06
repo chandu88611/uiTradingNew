@@ -1,3 +1,4 @@
+// src/components/user/CopyTradingSettings.tsx
 import React, { useMemo, useState } from "react";
 import { RefreshCw, Save, Pencil, Trash2, Crown, X } from "lucide-react";
 import { toast } from "react-toastify";
@@ -18,12 +19,10 @@ function clsx(...parts: Array<string | false | null | undefined>) {
 }
 
 type Props = {
-  // keep your prop if your page passes it
   mode?: "FOREX" | "INDIA";
 };
 
 export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
-  // if you want only forex on this page
   if (mode !== "FOREX") {
     return (
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 text-slate-300">
@@ -44,9 +43,12 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
     return Array.isArray(raw) ? raw : [];
   }, [forexDetailsRes]);
 
-  const [upsertFx, { isLoading: saving }] = useUpsertMyForexTraderDetailsMutation();
-  const [patchFx, { isLoading: patching }] = usePatchForexTraderDetailByIdMutation();
-  const [deleteFx, { isLoading: deleting }] = useDeleteForexTraderDetailByIdMutation();
+  const [upsertFx, { isLoading: saving }] =
+    useUpsertMyForexTraderDetailsMutation();
+  const [patchFx, { isLoading: patching }] =
+    usePatchForexTraderDetailByIdMutation();
+  const [deleteFx, { isLoading: deleting }] =
+    useDeleteForexTraderDetailByIdMutation();
 
   // Create form
   const [fxType, setFxType] = useState<ForexTradeCategory>("MT5");
@@ -94,7 +96,6 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
           forexType: "MT5",
           forexTraderUserId: mt5LoginId.trim(),
           isMaster,
-          // token not sent for MT5
         }).unwrap();
 
         toast.success("Saved");
@@ -104,9 +105,10 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
       }
 
       // CTRADER
-      if (!ctraderAccountId.trim()) return toast.error("cTrader Account ID is required");
-      // token can be required by your service. if you make it optional in backend, this still works.
-      if (!ctraderToken.trim()) return toast.error("cTrader Access Token is required");
+      if (!ctraderAccountId.trim())
+        return toast.error("cTrader Account ID is required");
+      if (!ctraderToken.trim())
+        return toast.error("cTrader Access Token is required");
 
       await upsertFx({
         forexType: "CTRADER",
@@ -172,8 +174,8 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
           <div>
             <p className="text-sm font-semibold">Forex Trader Details</p>
             <p className="text-xs text-slate-400 mt-1">
-              Use <span className="text-slate-200 font-semibold">PUT /forex-trader-user-details/me</span> to add
-              Master/Child rows. Master is decided by <span className="text-slate-200 font-semibold">isMaster</span>.
+              Add Master/Child rows. Master is decided by{" "}
+              <span className="text-slate-200 font-semibold">isMaster</span>.
             </p>
           </div>
 
@@ -211,7 +213,9 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div>
-            <label className="text-xs font-medium text-slate-300">Forex Type *</label>
+            <label className="text-xs font-medium text-slate-300">
+              Forex Type *
+            </label>
             <select
               value={fxType}
               onChange={(e) => setFxType(e.target.value as ForexTradeCategory)}
@@ -237,7 +241,9 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
 
           {fxType === "MT5" ? (
             <div className="md:col-span-2">
-              <label className="text-xs font-medium text-slate-300">MT5 Login ID *</label>
+              <label className="text-xs font-medium text-slate-300">
+                MT5 Login ID *
+              </label>
               <input
                 value={mt5LoginId}
                 onChange={(e) => setMt5LoginId(e.target.value)}
@@ -248,7 +254,9 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
           ) : (
             <>
               <div>
-                <label className="text-xs font-medium text-slate-300">cTrader Account ID *</label>
+                <label className="text-xs font-medium text-slate-300">
+                  cTrader Account ID *
+                </label>
                 <input
                   value={ctraderAccountId}
                   onChange={(e) => setCtraderAccountId(e.target.value)}
@@ -258,7 +266,9 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
               </div>
 
               <div>
-                <label className="text-xs font-medium text-slate-300">cTrader Access Token *</label>
+                <label className="text-xs font-medium text-slate-300">
+                  cTrader Access Token *
+                </label>
                 <input
                   value={ctraderToken}
                   onChange={(e) => setCtraderToken(e.target.value)}
@@ -284,7 +294,10 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
             {rows.map((r: any) => {
               const isEditing = editingId === Number(r.id);
               return (
-                <div key={r.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+                <div
+                  key={r.id}
+                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4"
+                >
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div>
                       <div className="text-sm font-semibold text-slate-100 flex items-center gap-2">
@@ -302,18 +315,26 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
 
                       {!isEditing ? (
                         <div className="text-xs text-slate-400 mt-1">
-                          User ID: <span className="text-slate-200">{r.forexTraderUserId}</span>
+                          User ID:{" "}
+                          <span className="text-slate-200">
+                            {r.forexTraderUserId}
+                          </span>
                           {String(r.forexType).toUpperCase() === "CTRADER" && (
                             <>
-                              {" "}• hasToken:{" "}
-                              <span className="text-slate-200">{r.hasToken ? "yes" : "no"}</span>
+                              {" "}
+                              • hasToken:{" "}
+                              <span className="text-slate-200">
+                                {r.hasToken ? "yes" : "no"}
+                              </span>
                             </>
                           )}
                         </div>
                       ) : (
                         <div className="mt-3 grid gap-4 md:grid-cols-3">
                           <div className="md:col-span-2">
-                            <label className="text-xs font-medium text-slate-300">User ID *</label>
+                            <label className="text-xs font-medium text-slate-300">
+                              User ID *
+                            </label>
                             <input
                               value={editUserId}
                               onChange={(e) => setEditUserId(e.target.value)}
@@ -322,12 +343,16 @@ export default function CopyTradingSettings({ mode = "FOREX" }: Props) {
                           </div>
 
                           <div>
-                            <label className="text-xs font-medium text-slate-300">Role</label>
+                            <label className="text-xs font-medium text-slate-300">
+                              Role
+                            </label>
                             <div className="mt-2 flex items-center gap-3 text-sm text-slate-200">
                               <input
                                 type="checkbox"
                                 checked={editIsMaster}
-                                onChange={(e) => setEditIsMaster(e.target.checked)}
+                                onChange={(e) =>
+                                  setEditIsMaster(e.target.checked)
+                                }
                                 className="h-4 w-4 rounded border-slate-700 bg-slate-950"
                               />
                               isMaster

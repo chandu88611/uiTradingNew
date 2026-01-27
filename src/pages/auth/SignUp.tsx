@@ -72,22 +72,14 @@ const SignUpPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignin
             </h2>
             <p className="mt-1 text-sm text-slate-400">
               Already have an account?{" "}
-              {mode === "modal" ? (
-                <button
-                  type="button"
-                  onClick={onSwitchToSignin}
-                  className="font-medium text-emerald-400 hover:text-emerald-300"
-                >
-                  Sign in
-                </button>
-              ) : (
+       
                 <Link
-                  to="/auth/signin"
+                  to="/auth/sign-in"
                   className="font-medium text-emerald-400 hover:text-emerald-300"
                 >
                   Sign in
                 </Link>
-              )}
+              
             </p>
           </div>
 

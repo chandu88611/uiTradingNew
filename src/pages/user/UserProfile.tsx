@@ -1,4 +1,4 @@
- import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   User as UserIcon,
   Mail,
@@ -8,18 +8,16 @@ import {
   CreditCard,
   MapPin,
   Hash,
-  Settings2,
-  Save,
-  CandlestickChart,
   RefreshCw,
-  Crown,
   Zap,
-  Calendar,
+  ExternalLink,
+  Layers,
   PlugZap,
-  KeyRound,
+  Crown,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import Modal from "../../components/Model";
+import { useNavigate } from "react-router-dom";
 
 import {
   useGetMeQuery,
@@ -27,28 +25,25 @@ import {
   useGetBillingDetailsQuery,
   useSaveBillingDetailsMutation,
   useChangePasswordMutation,
-  useUpdateTradeStatusMutation,
-  useUpdateExecutionProviderMutation,
 } from "../../services/userApi";
-
-import PineConnectorSettings, {
-  PineConnectorSettingsValue,
-} from "./PineConnectorSettings";
-import IndianMarketSettings, {
-  IndianMarketSettingsValue,
-} from "./IndianMarketSettings";
-import CryptoDeltaSettings, {
-  CryptoDeltaSettingsValue,
-} from "./CryptoDeltaSettings";
 
 import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
 
-/** helpers */
+/** ---------------- styles ---------------- */
+const container = "mx-auto w-full max-w-6xl px-4 md:px-6";
+const cardBase =
+  "rounded-2xl border border-slate-800 bg-slate-900/60 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]";
+const sectionBase = `${cardBase} p-5 md:p-6`;
+const subtle = "text-slate-400 text-sm";
+
 const inputBase =
   "mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-50 placeholder:text-slate-500 outline-none transition-all duration-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400";
 
-const sectionBase = "rounded-2xl border border-slate-800 bg-slate-900/40 p-6";
+function clsx(...parts: Array<string | false | null | undefined>) {
+  return parts.filter(Boolean).join(" ");
+}
 
+/** ---------------- helpers ---------------- */
 function pickUser(res: any) {
   return res?.user || res?.data || null;
 }
@@ -56,36 +51,114 @@ function pickBilling(res: any) {
   return res?.data || null;
 }
 
-type ExecProvider = "MT5" | "CTRADER";
+type TopTabKey = "profile" | "billing";
 
-type TradeSettings = {
-  pineConnector?: PineConnectorSettingsValue & {
-    /** ✅ New fields you asked for (backend can read later) */
-    executionProvider?: ExecProvider;
-    mt5LoginId?: string | number | null;
-    ctraderAccountId?: string | number | null;
-    ctraderAccessToken?: string | null;
-  };
-  indianMarket?: IndianMarketSettingsValue;
-  crypto?: CryptoDeltaSettingsValue;
-};
-
-type TradingTabKey = "pine" | "india" | "crypto";
-
-function clsx(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
+function Divider() {
+  return <div className="my-4 h-px w-full bg-slate-800/80" />;
 }
 
-function moneyINRFromCents(cents?: number | null) {
-  const n = Number(cents ?? 0);
-  if (!Number.isFinite(n)) return "—";
-  return `₹${(n / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+function PlanChip({ label, tone }: { label: string; tone?: "emerald" | "amber" | "sky" }) {
+  const toneCls =
+    tone === "amber"
+      ? "border-amber-400/30 bg-amber-500/10 text-amber-200"
+      : tone === "sky"
+      ? "border-sky-400/30 bg-sky-500/10 text-sky-200"
+      : "border-emerald-400/30 bg-emerald-500/10 text-emerald-200";
+
+  return (
+    <span className={clsx("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold", toneCls)}>
+      <Layers size={14} className="opacity-80" />
+      {label}
+    </span>
+  );
 }
 
-export default function UserProfilePage() {
-  const [activeTab, setActiveTab] = useState<
-    "profile" | "billing" | "trading" | "copy"
-  >("profile");
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={clsx(
+        "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition",
+        active
+          ? "bg-emerald-500 text-slate-950 border-emerald-500"
+          : "bg-slate-900/60 text-slate-300 border-slate-800 hover:border-slate-700"
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+  icon,
+  valueClass = "",
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/35 p-4">
+      <div className="h-10 w-10 rounded-xl border border-slate-800 bg-slate-900/60 flex items-center justify-center text-slate-300">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-400">{label}</p>
+        <p className={clsx("text-sm font-medium truncate", valueClass)}>{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function QuickLinkCard({
+  title,
+  desc,
+  icon,
+  onClick,
+}: {
+  title: string;
+  desc: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-left rounded-2xl border border-slate-800 bg-slate-950/35 hover:bg-slate-950/55 transition p-4 flex gap-3"
+    >
+      <div className="h-10 w-10 rounded-xl border border-slate-800 bg-slate-900/60 flex items-center justify-center text-slate-200">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-100">{title}</p>
+        <p className="text-xs text-slate-400 mt-1">{desc}</p>
+      </div>
+      <div className="ml-auto text-slate-500">
+        <ExternalLink size={16} />
+      </div>
+    </button>
+  );
+}
+
+/** ---------------- page ---------------- */
+export default function UserProfile() {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TopTabKey>("profile");
 
   // MODALS
   const [editProfileOpen, setEditProfileOpen] = useState(false);
@@ -93,171 +166,110 @@ export default function UserProfilePage() {
   const [changePassOpen, setChangePassOpen] = useState(false);
 
   // QUERIES
-  const {
-    data: meRes,
-    isLoading: meLoading,
-    isFetching: meFetching,
-    refetch: refetchMe,
-  } = useGetMeQuery();
-
-  const {
-    data: billingRes,
-    isLoading: billingLoading,
-    isFetching: billingFetching,
-    refetch: refetchBilling,
-  } = useGetBillingDetailsQuery();
-
-  const {
-    data: subRes,
-    isLoading: subLoading,
-    isFetching: subFetching,
-    refetch: refetchSub,
-  } = useGetMyCurrentSubscriptionQuery();
+  const { data: meRes, isLoading: meLoading, isFetching: meFetching, refetch: refetchMe } = useGetMeQuery();
+  const { data: billingRes, isLoading: billingLoading, isFetching: billingFetching, refetch: refetchBilling } =
+    useGetBillingDetailsQuery();
+  const { data: subRes, isLoading: subLoading, isFetching: subFetching, refetch: refetchSub } =
+    useGetMyCurrentSubscriptionQuery();
 
   const user = useMemo(() => pickUser(meRes), [meRes]);
   const billing = useMemo(() => pickBilling(billingRes), [billingRes]);
 
-  // ✅ Current subscription data format: { message, data: { ...subscription } }
   const mySub = (subRes as any)?.data ?? null;
   const plan = mySub?.plan ?? null;
+  const planName = plan?.name ?? "No active plan";
+  const planType = (plan?.planType ?? plan?.plan_type ?? "").toString().toUpperCase();
 
-  // ✅ Plan-based capabilities
-  const executionFlow: string | null = plan?.executionFlow ?? null;
-
-  const canUsePine =
-    executionFlow === "PINE_CONNECTOR" || Boolean(plan?.featureFlags?.pineConnector);
-
-  const canUseIndian = Boolean(plan?.featureFlags?.indianMarket);
-  const canUseCrypto = Boolean(plan?.featureFlags?.cryptoDelta);
-
-  // Default trading tab based on plan
-  const allowedTradingTabs: Array<{ key: TradingTabKey; label: string }> = useMemo(() => {
-    const tabs: Array<{ key: TradingTabKey; label: string }> = [];
-    if (canUsePine) tabs.push({ key: "pine", label: "Pine Connector" });
-    if (canUseIndian) tabs.push({ key: "india", label: "Indian Market" });
-    if (canUseCrypto) tabs.push({ key: "crypto", label: "Crypto (Delta)" });
-    return tabs;
-  }, [canUsePine, canUseIndian, canUseCrypto]);
-
-  const [tradingTab, setTradingTab] = useState<TradingTabKey>("pine");
-const [updateExecutionProvider, { isLoading: switchingProvider }] =
-  useUpdateExecutionProviderMutation();
-
-
-  const onSelectProvider = async (next: "MT5" | "CTRADER") => {
-  // optimistic UI
-  const prev = execProvider;
-  setPine({ executionProvider: next });
-
-  try {
-    await updateExecutionProvider({ executionProvider: next }).unwrap();
-    toast.success(next === "MT5" ? "MT5 enabled" : "cTrader enabled");
-    // optional refresh to sync plan/subscription flags
-    refetchSub();
-    refetchMe();
-  } catch (err: any) {
-    // rollback
-    setPine({ executionProvider: prev });
-    toast.error(err?.data?.message || "Failed to switch execution provider");
-  }
-};
-
-  // If plan changes and current tab is not allowed, auto-switch
-  useEffect(() => {
-    const allowedKeys = allowedTradingTabs.map((t) => t.key);
-    if (allowedKeys.length === 0) return;
-    if (!allowedKeys.includes(tradingTab)) setTradingTab(allowedKeys[0]);
-  }, [allowedTradingTabs, tradingTab]);
+  const loading = meLoading || meFetching || subLoading || subFetching;
 
   // MUTATIONS
   const [updateMe, { isLoading: updatingMe }] = useUpdateMeMutation();
   const [saveBilling, { isLoading: savingBilling }] = useSaveBillingDetailsMutation();
   const [changePassword, { isLoading: changingPass }] = useChangePasswordMutation();
 
-  const loading = meLoading || meFetching;
-
-  const tradeSettings: TradeSettings = user?.tradeSettings || {};
-  const [localTradeSettings, setLocalTradeSettings] = useState<TradeSettings>(tradeSettings);
-
-  useEffect(() => {
-    setLocalTradeSettings(tradeSettings);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.tradeSettings]);
-
-  // ✅ Webhook URL must be shown only if token exists
-  const webhookToken: string | null = mySub?.webhookToken ?? null;
-  const webhookUrl: string | null = webhookToken
-    ? `https://backend.globalalgotrading.com/tradingview/alerts?token=${webhookToken}`
-    : null;
-
-  const [updateTradeStatus] = useUpdateTradeStatusMutation();
-
-  const serverAllowTrade: boolean = Boolean(
-    (mySub as any)?.allowTrade ?? (mySub as any)?.executionEnabled
-  );
-
-  const [allowTradeLocal, setAllowTradeLocal] = useState<boolean>(serverAllowTrade);
-
-  useEffect(() => {
-    setAllowTradeLocal(serverAllowTrade);
-  }, [serverAllowTrade]);
-
-  // ✅ Pine execution setup (MT5 / cTrader) stored inside tradeSettings.pineConnector
-  const pine = (localTradeSettings.pineConnector || {}) as any;
-  const execProvider: ExecProvider = (pine.executionProvider as ExecProvider) || "MT5";
-
-  const setPine = (patch: Record<string, any>) => {
-    setLocalTradeSettings((p) => ({
-      ...p,
-      pineConnector: {
-        ...(p.pineConnector as any),
-        ...patch,
-      },
-    }));
-  };
+  const goUpgrade = () => navigate("/pricing");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white   px-4 md:px-6 pb-10">
-      <div className="mx-auto w-full max-w-5xl space-y-8">
-        {/* HEADER */}
-        <div>
-          <h1 className="text-2xl font-semibold">Profile Settings</h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Manage your personal details, billing info & security.
-          </p>
+    <div className="min-h-screen bg-slate-950 text-white pb-12">
+      {/* top glow */}
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.18),transparent_55%)]" />
+        <div className={clsx(container, "relative pt-10 md:pt-14 pb-6")}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+                Profile <span className="text-emerald-400">Settings</span>
+              </h1>
+              <p className={clsx(subtle, "mt-1")}>
+                Manage your profile, billing, and security. Trading settings are available in their own pages.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <PlanChip
+                  label={planName}
+                  tone={planType === "ELITE" ? "amber" : planType === "BUNDLE" ? "sky" : "emerald"}
+                />
+                {planType ? <PlanChip label={planType} tone="emerald" /> : null}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setChangePassOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm hover:bg-slate-900/80 transition"
+              >
+                <Lock size={16} className="text-slate-300" />
+                Change Password
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  refetchMe();
+                  refetchBilling();
+                  refetchSub();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm hover:bg-slate-900/80 transition"
+              >
+                <RefreshCw size={16} className="text-slate-300" />
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={goUpgrade}
+                className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400 transition"
+              >
+                <Zap size={16} />
+                Upgrade Plan
+              </button>
+            </div>
+          </div>
+
+          {/* TOP TABS (ONLY PROFILE + BILLING) */}
+          <div className="mt-6 flex flex-wrap gap-2">
+            <TabButton
+              active={activeTab === "profile"}
+              onClick={() => setActiveTab("profile")}
+              icon={<UserIcon size={16} />}
+              label="Profile"
+            />
+            <TabButton
+              active={activeTab === "billing"}
+              onClick={() => setActiveTab("billing")}
+              icon={<CreditCard size={16} />}
+              label="Billing"
+            />
+          </div>
         </div>
+      </div>
 
-        {/* TOP TABS */}
-        <div className="flex flex-wrap gap-2">
-          <TabButton
-            active={activeTab === "profile"}
-            onClick={() => setActiveTab("profile")}
-            icon={<UserIcon size={16} />}
-            label="Profile"
-          />
-          <TabButton
-            active={activeTab === "billing"}
-            onClick={() => setActiveTab("billing")}
-            icon={<CreditCard size={16} />}
-            label="Details"
-          />
-      
-
-          <div className="flex-1" />
-          <button
-            onClick={() => setChangePassOpen(true)}
-            className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-4 py-2 text-sm hover:bg-slate-700"
-          >
-            <Lock size={16} />
-            Change Password
-          </button>
-        </div>
-
-        {/* LOADING STATE */}
+      <div className={clsx(container, "mt-6")}>
         {loading ? (
           <ProfileSkeleton />
         ) : !user ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-300">
+          <div className={clsx(cardBase, "p-6 text-slate-300")}>
             Unable to load profile.{" "}
             <button
               onClick={() => refetchMe()}
@@ -267,102 +279,173 @@ const [updateExecutionProvider, { isLoading: switchingProvider }] =
             </button>
           </div>
         ) : (
-          <>
-            {/* PROFILE TAB */}
-            {activeTab === "profile" && (
-              <>
+          <div className="grid lg:grid-cols-[1fr,360px] gap-6">
+            {/* LEFT */}
+            <div className="space-y-6">
+              {activeTab === "profile" && (
+                <>
+                  <section className={sectionBase}>
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-lg md:text-xl font-semibold">Personal Information</h2>
+
+                      <button
+                        onClick={() => setEditProfileOpen(true)}
+                        className="flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        <Pencil size={15} />
+                        Edit
+                      </button>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                      <InfoRow label="Full Name" value={user?.name || "—"} icon={<UserIcon size={18} />} />
+                      <InfoRow label="Email" value={user?.email || "—"} icon={<Mail size={18} />} />
+                      <InfoRow
+                        label="Verification"
+                        value={user?.isEmailVerified ? "Verified" : "Not Verified"}
+                        icon={<ShieldCheck size={18} />}
+                        valueClass={user?.isEmailVerified ? "text-emerald-300" : "text-rose-300"}
+                      />
+                      <InfoRow label="User ID" value={String(user?.id ?? "—")} icon={<Hash size={18} />} />
+                    </div>
+                  </section>
+
+                  <section className={sectionBase}>
+                    <h2 className="text-lg md:text-xl font-semibold">Security</h2>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Use a strong password. You can change your password anytime.
+                    </p>
+                  </section>
+
+                  {/* ✅ Quick navigation to split pages */}
+                  <section className={sectionBase}>
+                    <h2 className="text-lg md:text-xl font-semibold">Trading Pages</h2>
+                    <p className="mt-2 text-sm text-slate-400">
+                      Trading settings are managed in separate pages for clarity.
+                    </p>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <QuickLinkCard
+                        title="Forex Trading"
+                        desc="Pine connector, MT5/cTrader, webhooks, execution."
+                        icon={<PlugZap size={18} />}
+                        onClick={() => navigate("/forex-trading")}
+                      />
+                      <QuickLinkCard
+                        title="Indian Trading"
+                        desc="Broker token settings for Indian market execution."
+                        icon={<ShieldCheck size={18} />}
+                        onClick={() => navigate("/indian-trading")}
+                      />
+                      <QuickLinkCard
+                        title="Crypto Trading"
+                        desc="Delta API keys and crypto execution settings."
+                        icon={<ShieldCheck size={18} />}
+                        onClick={() => navigate("/crypto-trading")}
+                      />
+                      <QuickLinkCard
+                        title="Copy Trading"
+                        desc="Your copy-trading setup and follower settings."
+                        icon={<Crown size={18} />}
+                        onClick={() => navigate("/copy-trading")}
+                      />
+                    </div>
+                  </section>
+                </>
+              )}
+
+              {activeTab === "billing" && (
                 <section className={sectionBase}>
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-xl font-semibold">Personal Information</h2>
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <h2 className="text-lg md:text-xl font-semibold">Billing Details</h2>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Only PAN + address are required for invoices.
+                      </p>
+                    </div>
 
                     <button
-                      onClick={() => setEditProfileOpen(true)}
-                      className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
+                      onClick={() => setEditBillingOpen(true)}
+                      className="flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
                     >
                       <Pencil size={15} />
-                      Edit
+                      Edit Billing
                     </button>
                   </div>
 
-                  <div className="mt-6 grid gap-6 sm:grid-cols-2">
-                    <InfoRow label="Full Name" value={user?.name || "—"} icon={<UserIcon />} />
-                    <InfoRow label="Email" value={user?.email || "—"} icon={<Mail />} />
-                    <InfoRow
-                      label="Verification"
-                      value={user?.isEmailVerified ? "Verified" : "Not Verified"}
-                      icon={<ShieldCheck />}
-                      valueClass={user?.isEmailVerified ? "text-emerald-300" : "text-rose-300"}
-                    />
-                    <InfoRow label="User ID" value={String(user?.id ?? "—")} icon={<Hash />} />
-                  </div>
-                </section>
+                  {billingLoading || billingFetching ? (
+                    <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
+                  ) : (
+                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                      <InfoRow label="PAN Number" value={billing?.panNumber || "—"} icon={<Hash size={18} />} />
 
-                <section className={sectionBase}>
-                  <h2 className="text-xl font-semibold">Security</h2>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Keep your password strong. If you logged in via Google, you can still set a password later.
-                  </p>
-                </section>
-              </>
-            )}
+                      <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-950/35 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="h-10 w-10 rounded-xl border border-slate-800 bg-slate-900/60 flex items-center justify-center text-slate-300">
+                            <MapPin size={18} />
+                          </div>
 
-            {/* BILLING TAB */}
-            {activeTab === "billing" && (
-              <section className={sectionBase}>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <h2 className="text-xl font-semibold">Billing Details</h2>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Only PAN + address are required for invoices. Bank details are not collected ✅
-                    </p>
-                  </div>
+                          <div>
+                            <p className="text-xs text-slate-400">Address</p>
 
-                  <button
-                    onClick={() => setEditBillingOpen(true)}
-                    className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-emerald-400"
-                  >
-                    <Pencil size={15} />
-                    Edit Billing
-                  </button>
-                </div>
-
-                {billingLoading || billingFetching ? (
-                  <div className="mt-6 text-sm text-slate-400">Loading billing…</div>
-                ) : (
-                  <div className="mt-6 grid gap-6 sm:grid-cols-2">
-                    <InfoRow label="PAN Number" value={billing?.panNumber || "—"} icon={<Hash />} />
-
-                    <div className="sm:col-span-2 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-                          <MapPin />
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-slate-400">Address</p>
-
-                          {billing ? (
-                            <div className="mt-1 space-y-1 text-sm text-slate-200">
-                              <div>{billing.addressLine1}</div>
-                              {billing.addressLine2 && <div>{billing.addressLine2}</div>}
-                              <div>
-                                {billing.city}, {billing.state}
+                            {billing ? (
+                              <div className="mt-1 space-y-1 text-sm text-slate-200">
+                                <div>{billing.addressLine1}</div>
+                                {billing.addressLine2 && <div>{billing.addressLine2}</div>}
+                                <div>
+                                  {billing.city}, {billing.state}
+                                </div>
+                                <div className="font-medium">{billing.pincode}</div>
                               </div>
-                              <div className="font-medium">{billing.pincode}</div>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-slate-400">—</p>
-                          )}
+                            ) : (
+                              <p className="text-sm text-slate-400">—</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </section>
-            )}
+                  )}
+                </section>
+              )}
+            </div>
 
-       
-          </>
+            {/* RIGHT SIDEBAR */}
+            <div className="space-y-6 lg:sticky lg:top-6 h-fit">
+              <div className={sectionBase}>
+                <p className="text-sm font-semibold text-slate-100">Current Plan</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Your plan affects which trading pages/features are available.
+                </p>
+                <Divider />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-slate-500">Plan</p>
+                    <p className="text-sm font-semibold text-slate-100">{planName}</p>
+                  </div>
+
+                  {planType ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">Tier</p>
+                      <p className="text-sm font-semibold text-slate-100">{planType}</p>
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={goUpgrade}
+                    className="mt-4 w-full rounded-xl bg-emerald-500 text-slate-950 font-extrabold py-3 hover:bg-emerald-400 transition flex items-center justify-center gap-2"
+                  >
+                    <Zap size={18} />
+                    Upgrade Plan
+                  </button>
+                </div>
+              </div>
+
+              <div className={clsx(cardBase, "p-5 text-[11px] text-slate-500")}>
+                Tip: Trading settings are now in <b>Forex / Indian / Crypto</b> pages.
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -422,52 +505,7 @@ const [updateExecutionProvider, { isLoading: switchingProvider }] =
   );
 }
 
-/* ---------------- UI pieces ---------------- */
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm border transition ${
-        active
-          ? "bg-emerald-500 text-slate-950 border-emerald-500"
-          : "bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}
- 
-
-
-function InfoRow({ label, value, icon, valueClass = "" }: any) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <div className="h-10 w-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-300">
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className={`text-sm font-medium truncate ${valueClass}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
-
- 
-
+/* ---------------- Skeleton ---------------- */
 function ProfileSkeleton() {
   return (
     <div className="space-y-6">
@@ -487,6 +525,54 @@ function ProfileSkeleton() {
 }
 
 /* ---------------- Forms ---------------- */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-slate-300">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function FooterActions({
+  onClose,
+  mainText,
+  disabled,
+  onMain,
+}: {
+  onClose: () => void;
+  mainText: string;
+  disabled?: boolean;
+  onMain: () => void;
+}) {
+  return (
+    <div className="mt-6 flex justify-end gap-2">
+      <button
+        onClick={onClose}
+        className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-sm hover:bg-slate-900/80 transition"
+      >
+        Cancel
+      </button>
+
+      <button
+        disabled={disabled}
+        onClick={onMain}
+        className="rounded-xl bg-emerald-500 px-4 py-2 text-sm text-slate-950 font-semibold hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {mainText}
+      </button>
+    </div>
+  );
+}
+
+function normalizeEmptyToNull(obj: Record<string, any>) {
+  const out: Record<string, any> = {};
+  Object.keys(obj).forEach((k) => {
+    const v = obj[k];
+    out[k] = typeof v === "string" && v.trim() === "" ? null : v;
+  });
+  return out;
+}
 
 function ProfileEditForm({
   user,
@@ -509,22 +595,15 @@ function ProfileEditForm({
   return (
     <div className="text-slate-100">
       <h3 className="text-lg font-semibold mb-1">Edit Profile</h3>
-      <p className="text-xs text-slate-400 mb-5">
-        Email change is disabled for now (can be added later).
-      </p>
+      <p className="text-xs text-slate-400 mb-5">Email change is disabled for now.</p>
 
       <div className="space-y-4">
         <Field label="Full Name">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={inputBase}
-            placeholder="Enter your name"
-          />
+          <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-50" placeholder="Enter your name" />
         </Field>
 
         <Field label="Email">
-          <input value={email} disabled className={`${inputBase} opacity-70 cursor-not-allowed`} />
+          <input value={email} disabled className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950/50 px-3 py-2.5 text-sm text-slate-400 opacity-80 cursor-not-allowed" />
         </Field>
       </div>
 
@@ -574,18 +653,11 @@ function BillingEditForm({
   return (
     <div className="text-slate-100">
       <h3 className="text-lg font-semibold mb-1">Edit Billing Details</h3>
-      <p className="text-xs text-slate-400 mb-5">
-        PAN is optional ✅. Fill what you have — you can update later.
-      </p>
+      <p className="text-xs text-slate-400 mb-5">Fill what you have — you can update later.</p>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="PAN Number (Optional)">
-          <input
-            value={form.panNumber}
-            onChange={(e) => set("panNumber", e.target.value)}
-            className={inputBase}
-            placeholder="ABCDE1234F"
-          />
+          <input value={form.panNumber} onChange={(e) => set("panNumber", e.target.value)} className={inputBase} placeholder="ABCDE1234F" />
         </Field>
       </div>
 
@@ -593,48 +665,23 @@ function BillingEditForm({
         <p className="text-sm font-semibold text-slate-200 mb-3">Address</p>
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Address Line 1">
-            <input
-              value={form.addressLine1}
-              onChange={(e) => set("addressLine1", e.target.value)}
-              className={inputBase}
-              placeholder="House / Street"
-            />
+            <input value={form.addressLine1} onChange={(e) => set("addressLine1", e.target.value)} className={inputBase} placeholder="House / Street" />
           </Field>
 
           <Field label="Address Line 2 (Optional)">
-            <input
-              value={form.addressLine2}
-              onChange={(e) => set("addressLine2", e.target.value)}
-              className={inputBase}
-              placeholder="Area / Landmark"
-            />
+            <input value={form.addressLine2} onChange={(e) => set("addressLine2", e.target.value)} className={inputBase} placeholder="Area / Landmark" />
           </Field>
 
           <Field label="City">
-            <input
-              value={form.city}
-              onChange={(e) => set("city", e.target.value)}
-              className={inputBase}
-              placeholder="City"
-            />
+            <input value={form.city} onChange={(e) => set("city", e.target.value)} className={inputBase} placeholder="City" />
           </Field>
 
           <Field label="State">
-            <input
-              value={form.state}
-              onChange={(e) => set("state", e.target.value)}
-              className={inputBase}
-              placeholder="State"
-            />
+            <input value={form.state} onChange={(e) => set("state", e.target.value)} className={inputBase} placeholder="State" />
           </Field>
 
           <Field label="Pincode">
-            <input
-              value={form.pincode}
-              onChange={(e) => set("pincode", e.target.value)}
-              className={inputBase}
-              placeholder="560001"
-            />
+            <input value={form.pincode} onChange={(e) => set("pincode", e.target.value)} className={inputBase} placeholder="560001" />
           </Field>
         </div>
       </div>
@@ -667,37 +714,19 @@ function ChangePasswordForm({
   return (
     <div className="text-slate-100">
       <h3 className="text-lg font-semibold mb-1">Change Password</h3>
-      <p className="text-xs text-slate-400 mb-5">Use a strong password. Minimum 6 characters.</p>
+      <p className="text-xs text-slate-400 mb-5">Minimum 6 characters.</p>
 
       <div className="space-y-4">
         <Field label="Current Password">
-          <input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            className={inputBase}
-            placeholder="Enter current password"
-          />
+          <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className={inputBase} placeholder="Enter current password" />
         </Field>
 
         <Field label="New Password">
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className={inputBase}
-            placeholder="Create a new password"
-          />
+          <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputBase} placeholder="Create a new password" />
         </Field>
 
         <Field label="Confirm New Password">
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            className={inputBase}
-            placeholder="Re-enter new password"
-          />
+          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputBase} placeholder="Re-enter new password" />
           {confirm.length > 0 && newPassword !== confirm && (
             <p className="mt-1 text-xs text-rose-400">Passwords do not match</p>
           )}
@@ -712,52 +741,4 @@ function ChangePasswordForm({
       />
     </div>
   );
-}
-
-/* ---------------- Small UI helpers ---------------- */
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-xs font-medium text-slate-300">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function FooterActions({
-  onClose,
-  mainText,
-  disabled,
-  onMain,
-}: {
-  onClose: () => void;
-  mainText: string;
-  disabled?: boolean;
-  onMain: () => void;
-}) {
-  return (
-    <div className="mt-6 flex justify-end gap-2">
-      <button onClick={onClose} className="rounded-full bg-slate-700 px-4 py-2 text-sm hover:bg-slate-600">
-        Cancel
-      </button>
-
-      <button
-        disabled={disabled}
-        onClick={onMain}
-        className="rounded-full bg-emerald-500 px-4 py-2 text-sm text-slate-950 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed"
-      >
-        {mainText}
-      </button>
-    </div>
-  );
-}
-
-function normalizeEmptyToNull(obj: Record<string, any>) {
-  const out: Record<string, any> = {};
-  Object.keys(obj).forEach((k) => {
-    const v = obj[k];
-    out[k] = typeof v === "string" && v.trim() === "" ? null : v;
-  });
-  return out;
 }

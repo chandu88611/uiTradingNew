@@ -63,22 +63,13 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
 
             <p className="mt-1 text-sm text-slate-400">
               Don&apos;t have an account?{" "}
-              {mode === "modal" ? (
-                <button
-                  type="button"
-                  onClick={onSwitchToSignup}
-                  className="font-medium text-emerald-400 hover:text-emerald-300"
-                >
-                  Create one
-                </button>
-              ) : (
+        
                 <Link
-                  to="/auth/signup"
+                  to="/auth/sign-up"
                   className="font-medium text-emerald-400 hover:text-emerald-300"
                 >
                   Create one
                 </Link>
-              )}
             </p>
           </div>
 

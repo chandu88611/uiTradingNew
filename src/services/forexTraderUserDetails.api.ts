@@ -55,9 +55,6 @@ export interface ListTradingAccountsResponse {
 
 /**
  * ✅ cTrader connect URL response
- * Backend should return something like:
- *   { url: "https://id.ctrader.com/..." }
- * OR { data: { url: "..." } }
  */
 export interface CtraderConnectUrlResponse {
   url: string;
@@ -74,6 +71,7 @@ function pickTraderUserId(a: TradingAccountApi): string {
   const candidate =
     (meta as any).ctraderAccountId ??
     (meta as any).mt5LoginId ??
+    (meta as any).mt5AccountId ??
     (meta as any).loginId ??
     (meta as any).accountId ??
     (meta as any).userId ??
@@ -111,6 +109,9 @@ function toForexRow(a: TradingAccountApi): ForexAccountRow {
  * UI payloads
  */
 export interface UpsertForexAccountPayload {
+  // ✅ required because GET now expects planId and we want correct invalidations
+  planId: string;
+
   forexType: ForexTradeCategory;
   forexTraderUserId: string;
 
@@ -125,8 +126,9 @@ export interface UpsertForexAccountPayload {
 }
 
 export interface PatchForexAccountPayload {
+  planId: string;
   id: number;
-  patch: Partial<UpsertForexAccountPayload> & {
+  patch: Partial<Omit<UpsertForexAccountPayload, "planId">> & {
     status?: string;
     accountLabel?: string;
     executionFlow?: string;
@@ -181,56 +183,56 @@ function buildPatchBody(patch: PatchForexAccountPayload["patch"]) {
 
 export const forexTraderUserDetailsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
-    getMyForexTraderDetails: builder.query<ForexAccountRow[], void>({
-      query: () => ({
+    /**
+     * ✅ NOW REQUIRES planId:
+     * GET /trading-accounts?planId=...
+     */
+    getMyForexTraderDetails: builder.query<ForexAccountRow[], { planId: string }>({
+      query: ({ planId }) => ({
         url: "trading-accounts",
         method: "GET",
+        params: { planId },
       }),
       transformResponse: (res: ListTradingAccountsResponse) => {
         const list = Array.isArray(res?.accounts) ? res.accounts : [];
         return list.map(toForexRow);
       },
-      providesTags: (result) =>
-        result
-          ? [
-              { type: "TradingAccount" as const, id: "LIST" },
-              ...result.map((r) => ({ type: "TradingAccount" as const, id: r.id })),
-            ]
-          : [{ type: "TradingAccount" as const, id: "LIST" }],
+      providesTags: (_result, _err, arg) => [{ type: "TradingAccount" as const, id: `LIST:${arg.planId}` }],
     }),
 
+    /**
+     * POST /trading-accounts
+     * (Passing planId as query param too — safe if backend ignores it, required if backend scopes by plan)
+     */
     upsertMyForexTraderDetails: builder.mutation<ForexAccountRow, UpsertForexAccountPayload>({
       query: (payload) => ({
         url: "trading-accounts",
         method: "POST",
+        params: { planId: payload.planId },
         body: buildCreateBody(payload),
       }),
       transformResponse: (res: { account: TradingAccountApi }) => toForexRow(res.account),
-      invalidatesTags: [{ type: "TradingAccount" as const, id: "LIST" }],
+      invalidatesTags: (_r, _e, arg) => [{ type: "TradingAccount" as const, id: `LIST:${arg.planId}` }],
     }),
 
     patchForexTraderDetailById: builder.mutation<ForexAccountRow, PatchForexAccountPayload>({
-      query: ({ id, patch }) => ({
+      query: ({ id, patch, planId }) => ({
         url: `trading-accounts/${id}`,
         method: "PATCH",
+        params: { planId },
         body: buildPatchBody(patch),
       }),
       transformResponse: (res: { account: TradingAccountApi }) => toForexRow(res.account),
-      invalidatesTags: (_r, _e, arg) => [
-        { type: "TradingAccount" as const, id: "LIST" },
-        { type: "TradingAccount" as const, id: arg.id },
-      ],
+      invalidatesTags: (_r, _e, arg) => [{ type: "TradingAccount" as const, id: `LIST:${arg.planId}` }],
     }),
 
-    deleteForexTraderDetailById: builder.mutation<void, { id: number }>({
-      query: ({ id }) => ({
+    deleteForexTraderDetailById: builder.mutation<void, { id: number; planId: string }>({
+      query: ({ id, planId }) => ({
         url: `trading-accounts/${id}`,
         method: "DELETE",
+        params: { planId },
       }),
-      invalidatesTags: (_r, _e, arg) => [
-        { type: "TradingAccount" as const, id: "LIST" },
-        { type: "TradingAccount" as const, id: arg.id },
-      ],
+      invalidatesTags: (_r, _e, arg) => [{ type: "TradingAccount" as const, id: `LIST:${arg.planId}` }],
     }),
 
     /**

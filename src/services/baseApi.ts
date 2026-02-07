@@ -20,7 +20,9 @@ export const baseApi = createApi({
     "WorkspaceAlerts",
     "TradingViewAlertsHistory",
      "TradingviewAlertsHistory", 
-     'TradingAccount'
+     'TradingAccount',
+     'Trades',
+     'TradeHistory'
   ],
   endpoints: () => ({}),
 });

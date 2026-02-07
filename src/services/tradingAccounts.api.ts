@@ -37,6 +37,17 @@ export type CreateTradingAccountBody = {
   forexPlatform?: ForexPlatform; // only for FOREX
 };
 
+// ✅ NEW: cTrader OAuth exchange (UI sends code only; backend identifies user via cookies)
+export type ExchangeCTraderCodeBody = {
+  code: string;
+};
+
+// Keep response flexible (depends on your backend)
+// Common cases: { ok: true } or { message, data } or { data: { accounts: [...] } }
+export type ExchangeCTraderCodeResponse =
+  | { ok: true; message?: string; data?: any }
+  | { ok?: boolean; message?: string; data?: any; [k: string]: any };
+
 function unwrapData<T>(res: any): T {
   return (res?.data ?? res) as T;
 }
@@ -62,10 +73,7 @@ export const tradingAccountsApi = baseApi
       }),
 
       // ✅ POST /trading-accounts
-      createTradingAccount: builder.mutation<
-        TradingAccount,
-        CreateTradingAccountBody
-      >({
+      createTradingAccount: builder.mutation<TradingAccount, CreateTradingAccountBody>({
         query: (body) => ({
           url: "/trading-accounts",
           method: "POST",
@@ -108,6 +116,23 @@ export const tradingAccountsApi = baseApi
         transformResponse: (res: any) => unwrapData<any>(res),
         invalidatesTags: ["TradingAccounts"],
       }),
+
+      // ✅ NEW: POST /ctrader/oauth/exchange
+      // UI callback page sends { code } only.
+      // Backend identifies the user from auth cookies (so we ensure credentials include).
+      exchangeCTraderOAuthCode: builder.mutation<
+        ExchangeCTraderCodeResponse,
+        ExchangeCTraderCodeBody
+      >({
+        query: (body) => ({
+          url: "/ctrader/oauth/exchange",
+          method: "POST",
+          body,
+          credentials: "include", // ✅ send cookies
+        }),
+        transformResponse: (res: any) => unwrapData<ExchangeCTraderCodeResponse>(res),
+        invalidatesTags: ["TradingAccounts"], // token exchange likely creates/updates ctrader accounts
+      }),
     }),
     overrideExisting: true,
   });
@@ -119,4 +144,7 @@ export const {
   useDeleteTradingAccountMutation,
   useVerifyTradingAccountMutation,
   usePatchTradingAccountMutation,
+
+  // ✅ NEW hook
+  useExchangeCTraderOAuthCodeMutation,
 } = tradingAccountsApi;

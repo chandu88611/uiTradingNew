@@ -20,6 +20,8 @@ const ResetPassowrd = lazy(() => import("./pages/auth/ResetPassowrd"));
 // USER DASHBOARD
 const Dashboard = lazy(() => import("./pages/dashboard/MyAccounts"));
 
+const TradingDashboard = lazy(() => import("./pages/user/TradingWorkspace"));
+
 // USER PAGES
 const UserProfile = lazy(() => import("./pages/user/UserProfile"));
 const StrategyConfigure = lazy(() => import("./pages/user/StrategyConfigure"));
@@ -35,7 +37,8 @@ const SmartPositionSizingPage = lazy(() => import("./pages/user/SmartPositionSiz
 
 const TradeLogs = lazy(() => import("./pages/user/TradeHistoryPage"));
 const OrderLogs = lazy(() => import("./pages/user/LivePositionsPage"));
-
+ 
+const CTraderCallbackPage =lazy(() => import("./pages/user/forex/CTraderCallbackPage"));
 // COPY TRADING (user side)
 // const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
 const CopyTrading = lazy(() => import("./pages/user/copy/CopyTradingSettings"));
@@ -129,10 +132,12 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/subscriptions/payment", element: SubscriptionPayment },
 
   // trading dashboards
-  // { path: "/trading/dashboard", element: TradingDashboard },
+  { path: "/trading/dashboard", element: TradingDashboard },
 
   // ✅ split pages
   { path: "/forex-trading", element: ForexTrading },
+  { path: "/forex-trading/ctraderflow", element: CTraderCallbackPage },
+  
   { path: "/indian-trading", element: IndianTrading },
   { path: "/crypto-trading", element: CryptoTrading }, // ✅ NEW
 

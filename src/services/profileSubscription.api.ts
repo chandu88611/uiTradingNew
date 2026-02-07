@@ -112,20 +112,7 @@ export const userSubscriptionApi = baseApi.injectEndpoints({
         url: "/subscription/current",
         method: "GET",
       }),
-      transformResponse: (resp: { message: string; data: UserSubscription | null }) => {
-        const sub = resp?.data ?? null;
-        if (!sub) return resp;
-
-        const token = sub.webhookToken ?? null;
-
-        return {
-          ...resp,
-          data: {
-            ...sub,
-            webhookUrl: buildWebhookUrl(token),
-          },
-        };
-      },
+     
       providesTags: ["UserSubscription"],
     }),
 

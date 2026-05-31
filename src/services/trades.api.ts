@@ -3,67 +3,144 @@ import { baseApi } from "./baseApi";
 
 /**
  * Backend APIs:
- * 1) GET  /trade/all?start=0&count=10
+ * 1) GET  /trade/all?start=0&count=10&accountId=123&searchParams=...
  * 2) GET  /trade?id=123
- * 3) GET  /trade/history?start=0&count=10
+ * 3) GET  /trade/history?start=0&count=10&accountId=123&searchParams=...
+ *
+ * Mutations:
+ * 4) POST /trade/close   body: { signalIds: [], isCloseAll: boolean }
  *
  * NOTE:
- * - Response shapes can vary; we keep them flexible but typed enough for UI.
- * - baseApi should already have baseUrl set (ex: http://69.62.126.107:3000)
+ * - Response shapes can vary; we normalize rows for UI so status doesn't become [object Object]
  */
 
 export type PagingParams = {
   start?: number; // default 0
   count?: number; // default 10
+  accountId?: string; // UI passes string
+  searchParams?: string;
 };
 
-// If you want strict fields, replace `any` with your real backend shape later.
+// UI-friendly shape
 export interface TradeDto {
   id?: number | string;
   status?: string | null;
   symbol?: string | null;
-  side?: string | null;
+  side?: string | null; // BUY/SELL
   qty?: number | string | null;
   price?: number | string | null;
   openedAt?: string | null;
   closedAt?: string | null;
-  pnl?: number | string | null;
-
-  // allow extra fields from backend
   [key: string]: any;
 }
 
-// common wrapper (backend may return {data:...} or array directly)
 export interface TradesListResponse {
   message?: string;
   data?: TradeDto[] | any;
   total?: number;
   start?: number;
   count?: number;
-
   [key: string]: any;
 }
 
 export interface TradeOneResponse {
   message?: string;
   data?: TradeDto | any;
-
   [key: string]: any;
 }
 
+/** ---------- Normalizers ---------- */
+function normalizeStatus(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    if (typeof v.status === "string") return v.status;
+    if (typeof (v as any).state === "string") return (v as any).state;
+  }
+  return String(v);
+}
+
+function normalizeSide(row: any): string | null {
+  const v = row?.side ?? row?.action ?? row?.direction ?? row?.type;
+  if (v == null) return null;
+  return String(v).toUpperCase();
+}
+
+function normalizeQty(row: any): number | string | null {
+  const v = row?.qty ?? row?.quantity ?? row?.volume ?? row?.lots ?? row?.size;
+  return v == null ? null : v;
+}
+
+function normalizeSymbol(row: any): string | null {
+  const v = row?.symbol ?? row?.ticker ?? row?.instrument;
+  return v == null ? null : String(v);
+}
+
+function normalizePrice(row: any): number | string | null {
+  const v = row?.price ?? row?.entry ?? row?.openPrice ?? row?.open_price;
+  return v == null ? null : v;
+}
+
+function normalizeOpenedAt(row: any): string | null {
+  const v = row?.openedAt ?? row?.openTime ?? row?.signalTime ?? row?.createdAt ?? row?.time;
+  return v == null ? null : String(v);
+}
+
+function normalizeClosedAt(row: any): string | null {
+  const v = row?.closedAt ?? row?.closeTime ?? row?.updatedAt ?? row?.timeClose;
+  return v == null ? null : String(v);
+}
+
+function normalizeTrade(row: any): TradeDto {
+  return {
+    ...row,
+    id: row?.id,
+    symbol: normalizeSymbol(row),
+    side: normalizeSide(row),
+    qty: normalizeQty(row),
+    price: normalizePrice(row),
+    openedAt: normalizeOpenedAt(row),
+    closedAt: normalizeClosedAt(row),
+    status: normalizeStatus(row?.status),
+  };
+}
+
+function normalizeListResponse(res: any): TradesListResponse {
+  const rows =
+    Array.isArray(res?.data) ? res.data :
+    Array.isArray(res?.trades) ? res.trades :
+    Array.isArray(res) ? res :
+    [];
+
+  const data = rows.map(normalizeTrade);
+  if (Array.isArray(res)) return { data };
+  return { ...(res ?? {}), data };
+}
+
+function normalizeOneResponse(res: any): TradeOneResponse {
+  const row = res?.data ?? res;
+  const data = row ? normalizeTrade(row) : row;
+  if (res && typeof res === "object" && "data" in res) return { ...(res ?? {}), data };
+  return { data };
+}
+
+/** ---------- NEW Close payload ---------- */
+export type CloseTradesRequest = {
+  signalIds: Array<number | string>;
+  isCloseAll: boolean;
+};
+
 export const tradesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
-    // GET /trade/all?start&count
     getAllTrades: builder.query<TradesListResponse, PagingParams | void>({
       query: (params) => ({
         url: "/trade/all",
         method: "GET",
         params: params ?? { start: 0, count: 10 },
       }),
+      transformResponse: (res: any) => normalizeListResponse(res),
       providesTags: (result) => {
-        // Tag each item + list tag so you can invalidate easily later
-        const rows = (result as any)?.data;
-        const arr: any[] = Array.isArray(rows) ? rows : Array.isArray(result as any) ? (result as any) : [];
+        const arr: any[] = Array.isArray((result as any)?.data) ? (result as any).data : [];
         return [
           { type: "Trades" as const, id: "LIST" },
           ...arr
@@ -74,26 +151,25 @@ export const tradesApi = baseApi.injectEndpoints({
       },
     }),
 
-    // GET /trade?id=123
     getTradeById: builder.query<TradeOneResponse, { id: number | string }>({
       query: ({ id }) => ({
         url: "/trade",
         method: "GET",
         params: { id },
       }),
+      transformResponse: (res: any) => normalizeOneResponse(res),
       providesTags: (_res, _err, arg) => [{ type: "Trades", id: arg.id }],
     }),
 
-    // GET /trade/history?start&count
     getTradesHistory: builder.query<TradesListResponse, PagingParams | void>({
       query: (params) => ({
         url: "/trade/history",
         method: "GET",
         params: params ?? { start: 0, count: 10 },
       }),
+      transformResponse: (res: any) => normalizeListResponse(res),
       providesTags: (result) => {
-        const rows = (result as any)?.data;
-        const arr: any[] = Array.isArray(rows) ? rows : Array.isArray(result as any) ? (result as any) : [];
+        const arr: any[] = Array.isArray((result as any)?.data) ? (result as any).data : [];
         return [
           { type: "TradeHistory" as const, id: "LIST" },
           ...arr
@@ -103,11 +179,27 @@ export const tradesApi = baseApi.injectEndpoints({
         ];
       },
     }),
+
+    /** ✅ Single endpoint for close-one and close-all */
+    closeTrades: builder.mutation<any, CloseTradesRequest>({
+      query: (body) => ({
+        url: "/trade/close",
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_res, _err, arg) => {
+        const ids = (arg?.signalIds ?? []).filter((x) => x != null);
+        return [
+          { type: "Trades", id: "LIST" },
+          { type: "TradeHistory", id: "LIST" },
+          ...ids.map((id) => ({ type: "Trades" as const, id })),
+        ];
+      },
+    }),
   }),
   overrideExisting: false,
 });
 
-// ✅ Hooks
 export const {
   useGetAllTradesQuery,
   useLazyGetAllTradesQuery,
@@ -115,4 +207,7 @@ export const {
   useLazyGetTradeByIdQuery,
   useGetTradesHistoryQuery,
   useLazyGetTradesHistoryQuery,
+
+  // ✅ NEW (single hook)
+  useCloseTradesMutation,
 } = tradesApi;

@@ -1,39 +1,68 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useGoogleLoginMutation } from "../../services/userApi";
 import { toast } from "react-toastify";
 
-const GoogleButton = ({ onSuccess }: { onSuccess: () => void }) => {
+type GoogleButtonProps = {
+  onSuccess: () => void;
+  referralCode?: string;
+};
+
+const GoogleButton = ({
+  onSuccess,
+  referralCode,
+}: GoogleButtonProps) => {
   const [googleLogin] = useGoogleLoginMutation();
+  const buttonRef = useRef<HTMLDivElement | null>(null);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    /* global google */
-    google.accounts.id.initialize({
-      client_id: "88832759206-gdc5iiimj61j1j3vr26p9jl1ltqivn58.apps.googleusercontent.com",
-      callback: async (response: any) => {
-        try {
-          const res = await googleLogin({ id_token: response.credential }).unwrap();
+    const google = (window as any).google;
 
-          // localStorage.setItem("accessToken", res.tokens.access);
-          // localStorage.setItem("refreshToken", res.tokens.refresh);
+    if (!google?.accounts?.id) {
+      toast.error("Google authentication is not available");
+      return;
+    }
 
-          onSuccess();
-        } catch (e) {
-          toast.error("Google login failed");
-        }
-      },
-    });
+    if (!initializedRef.current) {
+      google.accounts.id.initialize({
+        client_id:
+          "88832759206-gdc5iiimj61j1j3vr26p9jl1ltqivn58.apps.googleusercontent.com",
+        callback: async (response: any) => {
+          try {
+            const credential = response?.credential;
 
-    google.accounts.id.renderButton(
-      document.getElementById("google-btn")!,
-      {
+            if (!credential) {
+              toast.error("Google credential not received");
+              return;
+            }
+
+            await googleLogin({
+              id_token: credential,
+              referralCode: referralCode?.trim() || undefined,
+            }).unwrap();
+
+            onSuccess();
+          } catch (e: any) {
+            toast.error(e?.data?.message || "Google login failed");
+          }
+        },
+      });
+
+      initializedRef.current = true;
+    }
+
+    if (buttonRef.current) {
+      buttonRef.current.innerHTML = "";
+
+      google.accounts.id.renderButton(buttonRef.current, {
         theme: "outline",
         size: "large",
         width: "100%",
-      }
-    );
-  }, []);
+      });
+    }
+  }, [googleLogin, onSuccess, referralCode]);
 
-  return <div id="google-btn" className="w-full" />;
+  return <div ref={buttonRef} className="w-full" />;
 };
 
 export default GoogleButton;

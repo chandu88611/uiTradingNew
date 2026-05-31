@@ -1,12 +1,13 @@
-// SignInPage.tsx
-import React from "react";
+import React, { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { FiMail, FiLock } from "react-icons/fi";
-import { Link, useNavigate } from "react-router-dom";
-import { useLoginMutation } from "../../services/userApi";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLoginMutation, useMeQuery } from "../../services/userApi";
 import GoogleButton from "./GoogleButton";
 import { toast } from "react-toastify";
 import { consumeAuthReturnTo } from "../../utils/authReturn";
+
+const REFERRAL_STORAGE_KEY = "tradebro_referral_code";
 
 type SignInFormValues = {
   email: string;
@@ -20,9 +21,45 @@ type Props = {
   onSwitchToSignup?: () => void;
 };
 
-const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup }) => {
+const SignInPage: React.FC<Props> = ({
+  mode = "page",
+  onAuthed,
+  onSwitchToSignup,
+}) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [login, { isLoading: isLoginLoading }] = useLoginMutation();
+
+  const { data: meRes, isLoading: meLoading, isFetching: meFetching } =
+    useMeQuery(undefined, {
+      refetchOnMountOrArgChange: true,
+    } as any);
+
+  const me = (meRes as any)?.data ?? meRes;
+  const isAuthenticated = Boolean(me?.id || me?.user?.id);
+  const authReady = !(meLoading || meFetching);
+
+  const referralCode = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const fromQuery =
+      params.get("referralCode") ||
+      params.get("ref") ||
+      params.get("code") ||
+      "";
+
+    if (fromQuery.trim()) {
+      window.localStorage.setItem(
+        REFERRAL_STORAGE_KEY,
+        fromQuery.trim().toUpperCase()
+      );
+      return fromQuery.trim().toUpperCase();
+    }
+
+    return (
+      window.localStorage.getItem(REFERRAL_STORAGE_KEY)?.trim().toUpperCase() ||
+      ""
+    );
+  }, [location.search]);
 
   const {
     register,
@@ -30,14 +67,29 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
     formState: { errors, isSubmitting },
   } = useForm<SignInFormValues>();
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  useEffect(() => {
+    if (mode === "page" && authReady && isAuthenticated) {
+      navigate(consumeAuthReturnTo("/profile"), { replace: true });
+    }
+  }, [mode, authReady, isAuthenticated, navigate]);
+
   const afterAuth = () => {
     if (onAuthed) return onAuthed();
-    navigate(consumeAuthReturnTo("/profile"));
+    navigate(consumeAuthReturnTo("/profile"), { replace: true });
   };
 
   const onSubmit = async (data: SignInFormValues) => {
     try {
-      await login({ email: data.email, password: data.password }).unwrap();
+      await login({
+        email: data.email.trim(),
+        password: data.password,
+      }).unwrap();
+
+      toast.success("Signed in successfully");
       afterAuth();
     } catch (err: any) {
       toast.error(err?.data?.message || "Login failed");
@@ -45,16 +97,21 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
   };
 
   return (
-    <div className={`relative bg-slate-950 text-slate-50 ${mode === "page" ? "pt-16 md:pt-28" : "pt-6"}`}>
+    <div
+      className={`relative bg-slate-950 text-slate-50 ${
+        mode === "page" ? "pt-16 md:pt-28" : "pt-6"
+      }`}
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(129,140,248,0.25),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(16,185,129,0.18),_transparent_55%)]" />
 
       <div className="relative mx-auto flex min-h-[calc(100vh-140px)] max-w-5xl items-center justify-center px-4 py-10">
-        <div className="w-full max-w-md rounded-3xl border border-slate-800/80 bg-slate-900/90 p-6 sm:p-8 shadow-[0_20px_70px_rgba(15,23,42,0.9)] backdrop-blur-xl transition-all duration-500 hover:border-emerald-400/70 hover:shadow-[0_0_90px_rgba(56,189,248,0.4)]">
+        <div className="w-full max-w-md rounded-3xl border border-slate-800/80 bg-slate-900/90 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.9)] backdrop-blur-xl transition-all duration-500 hover:border-emerald-400/70 hover:shadow-[0_0_90px_rgba(56,189,248,0.4)] sm:p-8">
           <div className="mb-6 space-y-2">
             <span className="inline-flex items-center rounded-full bg-slate-800/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-indigo-300/90">
               Welcome back
             </span>
-            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">
+
+            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
               Sign in to your{" "}
               <span className="bg-gradient-to-r from-indigo-400 to-emerald-300 bg-clip-text text-transparent">
                 TradebroX portal
@@ -63,29 +120,45 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
 
             <p className="mt-1 text-sm text-slate-400">
               Don&apos;t have an account?{" "}
-        
+              {mode === "modal" && onSwitchToSignup ? (
+                <button
+                  type="button"
+                  onClick={onSwitchToSignup}
+                  className="font-medium text-emerald-400 hover:text-emerald-300"
+                >
+                  Create one
+                </button>
+              ) : (
                 <Link
                   to="/auth/sign-up"
                   className="font-medium text-emerald-400 hover:text-emerald-300"
                 >
                   Create one
                 </Link>
+              )}
             </p>
           </div>
 
           <div className="mb-5">
-            <GoogleButton onSuccess={afterAuth} />
+            <GoogleButton
+              onSuccess={afterAuth}
+              referralCode={referralCode || undefined}
+            />
           </div>
 
           <div className="mb-5 flex items-center gap-3">
             <div className="h-px flex-1 bg-slate-700/70" />
-            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">or</span>
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">
+              or
+            </span>
             <div className="h-px flex-1 bg-slate-700/70" />
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Email address</label>
+              <label className="text-xs font-medium text-slate-300">
+                Email address
+              </label>
               <div className="relative">
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
                   <FiMail />
@@ -97,15 +170,24 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
                   placeholder="you@example.com"
                   {...register("email", {
                     required: "Email is required",
-                    pattern: { value: /\S+@\S+\.\S+/, message: "Enter a valid email" },
+                    pattern: {
+                      value: /\S+@\S+\.\S+/,
+                      message: "Enter a valid email",
+                    },
                   })}
                 />
               </div>
-              {errors.email && <p className="mt-0.5 text-xs text-rose-400">{errors.email.message}</p>}
+              {errors.email && (
+                <p className="mt-0.5 text-xs text-rose-400">
+                  {errors.email.message}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Password</label>
+              <label className="text-xs font-medium text-slate-300">
+                Password
+              </label>
               <div className="relative">
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
                   <FiLock />
@@ -121,7 +203,11 @@ const SignInPage: React.FC<Props> = ({ mode = "page", onAuthed, onSwitchToSignup
                   })}
                 />
               </div>
-              {errors.password && <p className="mt-0.5 text-xs text-rose-400">{errors.password.message}</p>}
+              {errors.password && (
+                <p className="mt-0.5 text-xs text-rose-400">
+                  {errors.password.message}
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-between text-xs text-slate-400">

@@ -1,3 +1,4 @@
+ 
 import React, { useMemo, useState } from "react";
 import {
   CreditCard,
@@ -14,6 +15,11 @@ import {
   Copy,
   Eye,
   EyeOff,
+  Users,
+  Link as LinkIcon,
+  Clock,
+  PauseCircle,
+  StopCircle,
 } from "lucide-react";
 import { toast } from "react-toastify";
 import { useGetBillingDetailsQuery } from "../../services/userApi";
@@ -85,7 +91,6 @@ function getSubStatus(sub: any) {
     };
   }
 
-  // default ACTIVE-like
   return exec
     ? {
         label: `${statusV2} • EXECUTION ON`,
@@ -113,6 +118,40 @@ async function copyText(text: string) {
   }
 }
 
+/** ✅ supports BOTH old and new shapes safely */
+function pickSubsAndFollowers(subRes: any): { subs: any[]; followers: any[] } {
+  const root = subRes?.subscription ?? subRes ?? null;
+
+  // new shape: { subscription: { data:[], followers:[] } }
+  const data = root?.data;
+  const followers = root?.followers;
+
+  // old-ish shape fallback: { data: [...] }
+  const subsArr = Array.isArray(data)
+    ? data
+    : Array.isArray(subRes?.data)
+    ? subRes.data
+    : [];
+
+  const folArr = Array.isArray(followers) ? followers : Array.isArray(subRes?.followers) ? subRes.followers : [];
+
+  return { subs: subsArr.filter(Boolean), followers: folArr.filter(Boolean) };
+}
+
+function followerStatusPill(f: any) {
+  const s = String(f?.status ?? "").toLowerCase();
+  if (s === "approved" || s === "active") {
+    return { label: "APPROVED", tone: "text-emerald-200 bg-emerald-500/10 border-emerald-500/20" };
+  }
+  if (s === "paused") {
+    return { label: "PAUSED", tone: "text-amber-200 bg-amber-500/10 border-amber-500/20" };
+  }
+  if (s === "stopped" || s === "canceled" || s === "cancelled") {
+    return { label: "STOPPED", tone: "text-rose-200 bg-rose-500/10 border-rose-500/20" };
+  }
+  return { label: (s || "PENDING").toUpperCase(), tone: "text-slate-200 bg-white/5 border-white/10" };
+}
+
 export default function PlanBillingPage() {
   const {
     data: subRes,
@@ -121,7 +160,7 @@ export default function PlanBillingPage() {
     refetch: refetchSub,
     isError: subError,
   } = useGetMyCurrentSubscriptionQuery(undefined as any);
- 
+
   const {
     data: billingRes,
     isLoading: billingLoading,
@@ -130,17 +169,7 @@ export default function PlanBillingPage() {
     isError: billingError,
   } = useGetBillingDetailsQuery(undefined as any);
 
-  /**
-   * ✅ CORRECT MAPPING (your response)
-   * {
-   *   message: "...",
-   *   data: [ ...subscriptions ]
-   * }
-   */
-  const subs: any[] = useMemo(() => {
-    const list = (subRes as any)?.data; // ✅ THIS IS THE ARRAY
-    return Array.isArray(list) ? list.filter(Boolean) : [];
-  }, [subRes]);
+  const { subs, followers } = useMemo(() => pickSubsAndFollowers(subRes as any), [subRes]);
 
   const billing = (billingRes as any)?.data ?? null;
 
@@ -173,10 +202,17 @@ export default function PlanBillingPage() {
 
   const overall = useMemo(() => {
     if (subs.length === 0) {
-      return {
-        label: "No active plans",
-        tone: "text-yellow-200 bg-yellow-500/10 border-yellow-500/20",
-      };
+      // ✅ if no subs, we show "following" info instead
+      const n = followers.length;
+      return n > 0
+        ? {
+            label: `No active plans • Following ${n} master account(s)`,
+            tone: "text-emerald-200 bg-emerald-500/10 border-emerald-500/20",
+          }
+        : {
+            label: "No active plans",
+            tone: "text-yellow-200 bg-yellow-500/10 border-yellow-500/20",
+          };
     }
 
     const active = subs.filter((s) => !isExpired(s?.endDate));
@@ -197,21 +233,31 @@ export default function PlanBillingPage() {
           label: `${subs.length} Plan(s) • Execution Disabled`,
           tone: "text-slate-200 bg-white/5 border-white/10",
         };
-  }, [subs]);
+  }, [subs, followers.length]);
 
   const refreshing = subLoading || subFetching || billingLoading || billingFetching;
+
+  const showFollowersOnly = !subLoading && !subFetching && subs.length === 0;
 
   return (
     <div className={shell}>
       {/* Header */}
       <div className="mb-5 flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold text-white">
-            Plans & Billing
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Multiple subscriptions supported (mapped from API <span className="text-slate-200 font-semibold">data[]</span>).
-          </p>
+          <h1 className="text-xl md:text-2xl font-semibold text-white">Plans & Billing</h1>
+
+          {/* <p className="text-sm text-slate-400 mt-1">
+            {showFollowersOnly ? (
+              <>
+                You don’t have any subscriptions yet. If you accepted copy-trading, you can manage your following
+                accounts here.
+              </>
+            ) : (
+              <>
+                Multiple subscriptions supported (mapped from API{" "})
+              </>
+            )}
+          </p> */}
 
           <div
             className={clsx(
@@ -223,9 +269,7 @@ export default function PlanBillingPage() {
             <span>{overall.label}</span>
           </div>
 
-          {subError ? (
-            <div className="mt-3 text-xs text-rose-300">Failed to load plans.</div>
-          ) : null}
+          {subError ? <div className="mt-3 text-xs text-rose-300">Failed to load plans/following.</div> : null}
         </div>
 
         <div className="flex items-center gap-2">
@@ -240,246 +284,410 @@ export default function PlanBillingPage() {
             {refreshing ? "Refreshing…" : "Refresh"}
           </button>
 
-          <a href="/subscriptions/dashboard" className={clsx(btn, btnPrimary)}>
+          {/* <a href="/subscriptions/dashboard" className={clsx(btn, btnPrimary)}>
             <Receipt size={16} />
             Subscription Dashboard
-          </a>
+          </a> */}
         </div>
       </div>
 
-      {/* Category Filter */}
-      {categories.length > 1 ? (
-        <div className="mb-6">
-          <div className="inline-flex flex-wrap gap-2 rounded-2xl border border-white/5 bg-slate-950/25 p-2">
-            {categories.map((c) => {
-              const active = activeCat === c;
-              return (
-                <button
-                  key={c}
-                  onClick={() => setActiveCat(c)}
-                  className={clsx(
-                    "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm border transition",
-                    active
-                      ? "bg-emerald-500 text-slate-950 border-emerald-500"
-                      : "bg-transparent text-slate-300 border-white/5 hover:bg-white/5 hover:border-white/10"
-                  )}
-                >
-                  <Layers size={16} />
-                  {c}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Plans */}
-        <section className={card}>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2">
-                <Crown size={18} className="text-yellow-300" />
-                <h2 className="text-lg font-semibold text-white">Subscriptions</h2>
+      {/* ✅ If no subscriptions, show FOLLOWING UI + billing. */}
+      {showFollowersOnly ? (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Following Accounts */}
+          <section className={card}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Users size={18} className="text-emerald-300" />
+                  <h2 className="text-lg font-semibold text-white">Following Accounts</h2>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  These are copy-trading requests/accounts you have accepted (from{" "}
+                  <span className="text-slate-200 font-semibold">subscription.followers[]</span>).
+                </p>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Each card = one item from response <span className="text-slate-200 font-semibold">data[]</span>.
-              </p>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <a href="/copy-trading/requests" className={clsx(btn, btnGhost, "text-xs")}>
+                  Requests <ArrowRight size={16} />
+                </a>
+                <a href="/copy-trading" className={clsx(btn, btnGhost, "text-xs")}>
+                  Copy Trading Overview <ArrowRight size={16} />
+                </a>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <a href="/pricing" className={clsx(btn, btnGhost)}>
-                Explore Plans <ArrowRight size={16} />
+            {subLoading || subFetching ? (
+              <div className="mt-5 text-sm text-slate-400">Loading following accounts…</div>
+            ) : followers.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                You are not following any master accounts yet.
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  <a href="/copy-trading" className={clsx(btn, btnPrimary, "text-xs")}>
+                    <LinkIcon size={16} />
+                    Go to Copy Trading
+                  </a>
+                  <a href="/pricing" className={clsx(btn, btnGhost, "text-xs")}>
+                    Buy a Plan <ArrowRight size={16} />
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 space-y-4">
+                {followers.map((f: any, idx: number) => {
+                  const id = String(f?.id ?? idx);
+                  const st = followerStatusPill(f);
+
+                  const master = f?.master ?? null;
+                  const masterUser = master?.user ?? null;
+
+                  const masterLabel =
+                    master?.accountLabel ||
+                    (master?.accountMeta?.mt5LoginId ? `MT5 • ${master.accountMeta.mt5LoginId}` : "") ||
+                    (master?.accountMeta?.ctraderAccountId ? `cTrader • ${master.accountMeta.ctraderAccountId}` : "") ||
+                    master?.accountId ||
+                    "—";
+
+                  const masterEmail = masterUser?.email || "—";
+                  const masterName = masterUser?.name || "—";
+
+                  return (
+                    <div key={id} className={clsx(soft, "p-4")}>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <div className="text-base font-semibold text-slate-100 truncate">
+                            Master: {masterName}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-1">
+                            <span className="text-slate-200 font-semibold">{masterEmail}</span>
+                          </div>
+
+                          <div className="mt-2 text-xs text-slate-400">
+                            Account: <span className="text-slate-200 font-semibold">{String(masterLabel)}</span>
+                          </div>
+
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <StatPill icon={<Clock size={14} />} label="Requested At" value={fmtDate(f?.requestedAt)} />
+                            <StatPill icon={<CalendarClock size={14} />} label="Approved At" value={fmtDate(f?.approvedAt)} />
+                          </div>
+                        </div>
+
+                        <div
+                          className={clsx(
+                            "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
+                            st.tone
+                          )}
+                        >
+                          {st.label === "PAUSED" ? <PauseCircle size={14} /> : st.label === "STOPPED" ? <StopCircle size={14} /> : <ShieldCheck size={14} />}
+                          <span>{st.label}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <LimitPill label="Follower Link ID" value={f?.id} mono />
+                        <LimitPill label="Follower Trading Account ID" value={f?.followerTradingAccountId} mono />
+                        <LimitPill label="Master Account ID" value={f?.masterId} mono />
+                        <LimitPill label="Follower User ID" value={f?.followerUserId} mono />
+                      </div>
+
+                      <div className="mt-4 flex items-center justify-between gap-2 flex-wrap rounded-xl border border-white/10 bg-white/5 p-3">
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <Hash size={14} />
+                          <span className="text-slate-200 font-semibold">status: {String(f?.status ?? "—")}</span>
+                        </div>
+
+                        <div className="flex gap-2 flex-wrap">
+                          <a href="/copy-trading" className={clsx(btn, btnGhost, "py-2 text-xs")}>
+                            Manage <ArrowRight size={16} />
+                          </a>
+                          <a href="/copy-trading/requests" className={clsx(btn, btnGhost, "py-2 text-xs")}>
+                            Requests <ArrowRight size={16} />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Billing (unchanged) */}
+          <section className={card}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div className="flex items-center gap-2">
+                  <CreditCard size={18} className="text-emerald-300" />
+                  <h2 className="text-lg font-semibold text-white">Billing Details</h2>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Used for invoices (PAN + address).</p>
+              </div>
+
+              <a href="/profile" className={clsx(btn, btnGhost, "text-xs")}>
+                Edit in Profile <ArrowRight size={16} />
               </a>
             </div>
-          </div>
 
-          {subLoading || subFetching ? (
-            <div className="mt-5 text-sm text-slate-400">Loading plans…</div>
-          ) : subs.length === 0 ? (
-            <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-              No active plans found.
-            </div>
-          ) : (
-            <div className="mt-5 space-y-4">
-              {filteredSubs.map((sub, idx) => {
-                const plan = sub?.plan ?? null;
-                const st = getSubStatus(sub);
+            {billingError ? (
+              <div className="mt-5 text-sm text-rose-300">Failed to load billing.</div>
+            ) : billingLoading || billingFetching ? (
+              <div className="mt-5 text-sm text-slate-400">Loading billing…</div>
+            ) : (
+              <div className="mt-5 space-y-3">
+                <InfoRow icon={<Hash size={16} />} label="PAN Number" value={billing?.panNumber || "—"} />
 
-                const subId = String(sub?.id ?? idx);
-
-                const planName = plan?.name ?? "—";
-                const planUuid = plan?.id ?? sub?.planId ?? "—";
-                const planTypeId = plan?.planTypeId ?? "—";
-                const tier = plan?.metadata?.tier ?? "—";
-                const includes = plan?.metadata?.includes ?? "—";
-
-                const tokenVisible = !!showToken[subId];
-
-                return (
-                  <div
-                    key={sub?.id ?? `${planUuid}-${idx}`}
-                    className={clsx(soft, "p-4")}
-                  >
-                    {/* Header */}
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                      <div className="min-w-0">
-                        <div className="text-base font-semibold text-slate-100 truncate">
-                          {planName}
-                        </div>
-                        <div className="text-xs text-slate-400 mt-1">
-                          Tier: <span className="text-slate-200 font-semibold">{String(tier)}</span> • Includes:{" "}
-                          <span className="text-slate-200 font-semibold">{String(includes)}</span> • PlanTypeId:{" "}
-                          <span className="text-slate-200 font-semibold">{String(planTypeId)}</span>
-                        </div>
-
-                        {plan?.description ? (
-                          <div className="text-xs text-slate-400 mt-2">
-                            {String(plan.description)}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div
-                        className={clsx(
-                          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
-                          st.tone
-                        )}
-                      >
-                        <ShieldCheck size={14} />
-                        <span>{st.label}</span>
-                      </div>
-                    </div>
-
-                    {/* Dates */}
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <StatPill icon={<CalendarClock size={14} />} label="Start Date" value={fmtDate(sub?.startDate)} />
-                      <StatPill icon={<CalendarClock size={14} />} label="End Date" value={fmtDate(sub?.endDate)} />
-                    </div>
-
-                    {/* Subscription fields */}
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <LimitPill label="Subscription ID" value={sub?.id} mono />
-                      <LimitPill label="User ID" value={sub?.userId} mono />
-                      <LimitPill label="statusV2" value={String(sub?.statusV2 ?? "—")} />
-                      <LimitPill label="executionEnabled" value={String(!!sub?.executionEnabled)} />
-                      <LimitPill label="liquidateOnlyUntil" value={fmtDate(sub?.liquidateOnlyUntil)} />
-                      <LimitPill label="Plan UUID" value={String(planUuid)} mono />
-                    </div>
-
-                    {/* Webhook Token */}
-                    <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-[11px] text-slate-400">webhookToken</div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowToken((p) => ({ ...p, [subId]: !p[subId] }))}
-                            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
-                          >
-                            {tokenVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-                            {tokenVisible ? "Hide" : "Show"}
-                          </button>
-
-                          {sub?.webhookToken ? (
-                            <button
-                              type="button"
-                              onClick={() => copyText(String(sub.webhookToken))}
-                              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
-                            >
-                              <Copy size={14} />
-                              Copy
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="mt-2 text-xs text-slate-200 font-mono break-all">
-                        {sub?.webhookToken
-                          ? tokenVisible
-                            ? String(sub.webhookToken)
-                            : shortToken(String(sub.webhookToken), 12)
-                          : "—"}
-                      </div>
-                    </div>
-
-                    {/* Footer */}
-                    <div className="mt-4 flex items-center justify-between gap-2 flex-wrap rounded-xl border border-white/10 bg-white/5 p-3">
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Hash size={14} />
-                        <span className="text-slate-200 font-semibold">
-                          planId: {String(sub?.planId ?? "—")}
-                        </span>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <a href="/subscriptions/dashboard" className={clsx(btn, btnGhost, "py-2 text-xs")}>
-                          Manage
-                        </a>
-                        <a href="/subscriptions/invoices" className={clsx(btn, btnGhost, "py-2 text-xs")}>
-                          Invoices
-                        </a>
-                      </div>
-                    </div>
+                <div className="rounded-2xl border border-white/5 bg-slate-950/25 p-4">
+                  <div className="flex items-center gap-2 text-slate-200">
+                    <MapPin size={16} />
+                    <p className="text-sm font-semibold">Address</p>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
 
-        {/* Billing */}
-        <section className={card}>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2">
-                <CreditCard size={18} className="text-emerald-300" />
-                <h2 className="text-lg font-semibold text-white">Billing Details</h2>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">Used for invoices (PAN + address).</p>
-            </div>
-
-            <a href="/profile" className={clsx(btn, btnGhost, "text-xs")}>
-              Edit in Profile <ArrowRight size={16} />
-            </a>
-          </div>
-
-          {billingError ? (
-            <div className="mt-5 text-sm text-rose-300">Failed to load billing.</div>
-          ) : billingLoading || billingFetching ? (
-            <div className="mt-5 text-sm text-slate-400">Loading billing…</div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              <InfoRow icon={<Hash size={16} />} label="PAN Number" value={billing?.panNumber || "—"} />
-
-              <div className="rounded-2xl border border-white/5 bg-slate-950/25 p-4">
-                <div className="flex items-center gap-2 text-slate-200">
-                  <MapPin size={16} />
-                  <p className="text-sm font-semibold">Address</p>
+                  {billing ? (
+                    <div className="mt-3 text-sm text-slate-100 space-y-1">
+                      <div>{billing.addressLine1 || "—"}</div>
+                      {billing.addressLine2 ? <div>{billing.addressLine2}</div> : null}
+                      <div className="text-slate-300">
+                        {[billing.city, billing.state].filter(Boolean).join(", ")}
+                      </div>
+                      <div className="font-semibold">{billing.pincode || "—"}</div>
+                    </div>
+                  ) : (
+                    <div className="mt-3 text-sm text-slate-300">—</div>
+                  )}
                 </div>
 
-                {billing ? (
-                  <div className="mt-3 text-sm text-slate-100 space-y-1">
-                    <div>{billing.addressLine1 || "—"}</div>
-                    {billing.addressLine2 ? <div>{billing.addressLine2}</div> : null}
-                    <div className="text-slate-300">
-                      {[billing.city, billing.state].filter(Boolean).join(", ")}
-                    </div>
-                    <div className="font-semibold">{billing.pincode || "—"}</div>
-                  </div>
-                ) : (
-                  <div className="mt-3 text-sm text-slate-300">—</div>
-                )}
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-slate-300">
+                  Tip: If billing details are empty, open{" "}
+                  <span className="text-slate-100 font-semibold">Profile</span> → Billing tab and save PAN + address.
+                </div>
               </div>
-
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-slate-300">
-                Tip: If billing details are empty, open{" "}
-                <span className="text-slate-100 font-semibold">Profile</span> → Billing tab and save PAN + address.
+            )}
+          </section>
+        </div>
+      ) : (
+        <>
+          {/* Category Filter (only when subs exist) */}
+          {categories.length > 1 ? (
+            <div className="mb-6">
+              <div className="inline-flex flex-wrap gap-2 rounded-2xl border border-white/5 bg-slate-950/25 p-2">
+                {categories.map((c) => {
+                  const active = activeCat === c;
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => setActiveCat(c)}
+                      className={clsx(
+                        "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm border transition",
+                        active
+                          ? "bg-emerald-500 text-slate-950 border-emerald-500"
+                          : "bg-transparent text-slate-300 border-white/5 hover:bg-white/5 hover:border-white/10"
+                      )}
+                    >
+                      <Layers size={16} />
+                      {c}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          )}
-        </section>
-      </div>
+          ) : null}
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Plans (your existing UI, only mapping changed) */}
+            <section className={card}>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Crown size={18} className="text-yellow-300" />
+                    <h2 className="text-lg font-semibold text-white">Subscriptions</h2>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Each card = one item from response{" "}
+                    <span className="text-slate-200 font-semibold">subscription.data[]</span>.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a href="/pricing" className={clsx(btn, btnGhost)}>
+                    Explore Plans <ArrowRight size={16} />
+                  </a>
+                </div>
+              </div>
+
+              {subLoading || subFetching ? (
+                <div className="mt-5 text-sm text-slate-400">Loading plans…</div>
+              ) : subs.length === 0 ? (
+                <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                  No active plans found.
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {filteredSubs.map((sub, idx) => {
+                    const plan = sub?.plan ?? null;
+                    const st = getSubStatus(sub);
+
+                    const subId = String(sub?.id ?? idx);
+
+                    const planName = plan?.name ?? "—";
+                    const planUuid = plan?.id ?? sub?.planId ?? "—";
+                    const planTypeId = plan?.planTypeId ?? "—";
+                    const tier = plan?.metadata?.tier ?? "—";
+                    const includes = plan?.metadata?.includes ?? "—";
+
+                    const tokenVisible = !!showToken[subId];
+
+                    return (
+                      <div key={sub?.id ?? `${planUuid}-${idx}`} className={clsx(soft, "p-4")}>
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0">
+                            <div className="text-base font-semibold text-slate-100 truncate">{planName}</div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              Tier:{" "}
+                              <span className="text-slate-200 font-semibold">{String(tier)}</span> • Includes:{" "}
+                              <span className="text-slate-200 font-semibold">{String(includes)}</span> • PlanTypeId:{" "}
+                              <span className="text-slate-200 font-semibold">{String(planTypeId)}</span>
+                            </div>
+
+                            {plan?.description ? (
+                              <div className="text-xs text-slate-400 mt-2">{String(plan.description)}</div>
+                            ) : null}
+                          </div>
+
+                          <div
+                            className={clsx(
+                              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
+                              st.tone
+                            )}
+                          >
+                            <ShieldCheck size={14} />
+                            <span>{st.label}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <StatPill icon={<CalendarClock size={14} />} label="Start Date" value={fmtDate(sub?.startDate)} />
+                          <StatPill icon={<CalendarClock size={14} />} label="End Date" value={fmtDate(sub?.endDate)} />
+                        </div>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          <LimitPill label="Subscription ID" value={sub?.id} mono />
+                          <LimitPill label="User ID" value={sub?.userId} mono />
+                          <LimitPill label="statusV2" value={String(sub?.statusV2 ?? "—")} />
+                          <LimitPill label="executionEnabled" value={String(!!sub?.executionEnabled)} />
+                          <LimitPill label="liquidateOnlyUntil" value={fmtDate(sub?.liquidateOnlyUntil)} />
+                          <LimitPill label="Plan UUID" value={String(planUuid)} mono />
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-slate-400">webhookToken</div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowToken((p) => ({ ...p, [subId]: !p[subId] }))}
+                                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                              >
+                                {tokenVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                                {tokenVisible ? "Hide" : "Show"}
+                              </button>
+
+                              {sub?.webhookToken ? (
+                                <button
+                                  type="button"
+                                  onClick={() => copyText(String(sub.webhookToken))}
+                                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                                >
+                                  <Copy size={14} />
+                                  Copy
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 text-xs text-slate-200 font-mono break-all">
+                            {sub?.webhookToken
+                              ? tokenVisible
+                                ? String(sub.webhookToken)
+                                : shortToken(String(sub.webhookToken), 12)
+                              : "—"}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between gap-2 flex-wrap rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex items-center gap-2 text-xs text-slate-400">
+                            <Hash size={14} />
+                            <span className="text-slate-200 font-semibold">planId: {String(sub?.planId ?? "—")}</span>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <a href="/subscriptions/dashboard" className={clsx(btn, btnGhost, "py-2 text-xs")}>
+                              Manage
+                            </a>
+                            <a href="/subscriptions/invoices" className={clsx(btn, btnGhost, "py-2 text-xs")}>
+                              Invoices
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Billing (unchanged) */}
+            <section className={card}>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <CreditCard size={18} className="text-emerald-300" />
+                    <h2 className="text-lg font-semibold text-white">Billing Details</h2>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">Used for invoices (PAN + address).</p>
+                </div>
+
+                <a href="/profile" className={clsx(btn, btnGhost, "text-xs")}>
+                  Edit in Profile <ArrowRight size={16} />
+                </a>
+              </div>
+
+              {billingError ? (
+                <div className="mt-5 text-sm text-rose-300">Failed to load billing.</div>
+              ) : billingLoading || billingFetching ? (
+                <div className="mt-5 text-sm text-slate-400">Loading billing…</div>
+              ) : (
+                <div className="mt-5 space-y-3">
+                  <InfoRow icon={<Hash size={16} />} label="PAN Number" value={billing?.panNumber || "—"} />
+
+                  <div className="rounded-2xl border border-white/5 bg-slate-950/25 p-4">
+                    <div className="flex items-center gap-2 text-slate-200">
+                      <MapPin size={16} />
+                      <p className="text-sm font-semibold">Address</p>
+                    </div>
+
+                    {billing ? (
+                      <div className="mt-3 text-sm text-slate-100 space-y-1">
+                        <div>{billing.addressLine1 || "—"}</div>
+                        {billing.addressLine2 ? <div>{billing.addressLine2}</div> : null}
+                        <div className="text-slate-300">{[billing.city, billing.state].filter(Boolean).join(", ")}</div>
+                        <div className="font-semibold">{billing.pincode || "—"}</div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-sm text-slate-300">—</div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-slate-300">
+                    Tip: If billing details are empty, open{" "}
+                    <span className="text-slate-100 font-semibold">Profile</span> → Billing tab and save PAN + address.
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -497,9 +705,7 @@ function StatPill({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-slate-950/25 p-3">
-      <div className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center text-slate-300">
-        {icon}
-      </div>
+      <div className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center text-slate-300">{icon}</div>
       <div className="min-w-0">
         <div className="text-[11px] text-slate-400">{label}</div>
         <div className="text-sm font-semibold text-slate-100 truncate">{value}</div>
@@ -541,9 +747,7 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-slate-950/25 p-3">
-      <div className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center text-slate-300">
-        {icon}
-      </div>
+      <div className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center text-slate-300">{icon}</div>
       <div className="min-w-0">
         <div className="text-[11px] text-slate-400">{label}</div>
         <div className="text-sm font-semibold text-slate-100 truncate">{value}</div>

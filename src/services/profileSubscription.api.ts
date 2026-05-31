@@ -76,8 +76,8 @@ export interface PublicPlansQuery {
 
 /**
  * ✅ IMPORTANT:
- * - If baseApi.baseUrl = https://backend.globalalgotrading.com  -> keep "/admin"
- * - If baseApi.baseUrl = https://backend.globalalgotrading.com/admin -> set "" (empty)
+ * - If baseApi.baseUrl = https://backend.tradebro.io  -> keep "/admin"
+ * - If baseApi.baseUrl = https://backend.tradebro.io/admin -> set "" (empty)
  */
 const ADMIN_PREFIX = "/admin"; // change to "" if baseUrl already includes "/admin"
 

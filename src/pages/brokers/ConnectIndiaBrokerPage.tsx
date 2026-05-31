@@ -11,35 +11,67 @@ import {
   XCircle,
   ArrowRight,
   RefreshCw,
+  ShieldCheck,
+  KeyRound,
+  Lock,
 } from "lucide-react";
 
-import { IndiaBroker, isIndiaBroker } from "./indiaBrokers";
+import {
+  extractTokenAny,
+  useGenerateIndianAuthTokenMutation,
+  useGenerateZebuAuthTokenMutation,
+  useSaveTradingAccountTokenMutation,
+} from "../../services/brokerConnect.api";
 
 type BrokerStatus = "Waiting" | "Ready" | "Saved" | "Error";
+type ConnectMode = "PASTE_TOKEN" | "GENERATE_TOTP";
+
+type IndiaBroker = "ZEBU" | "DHAN" | "ZERODHA" | "UPSTOX" | "FYERS" | "ANGELONE";
 
 interface BrokerConfig {
   id: IndiaBroker;
   name: string;
   portalUrl: string;
-  requiresPaste: boolean;
+  supportsTotp: boolean;
+  requiresPassword?: boolean; // ✅ ZEBU
   helpText?: string;
-  redirectHint?: string; // helpful hint shown near "Copy Redirect URI"
+  redirectHint?: string;
 }
 
 const BROKERS: BrokerConfig[] = [
   {
+    id: "ZEBU",
+    name: "Zebu",
+    portalUrl: "https://zebuetrade.com/",
+    supportsTotp: true,
+    requiresPassword: true,
+    helpText:
+      "You can either paste an access token (if you already have it), or generate it using your Zebu password + TOTP.",
+    redirectHint: "Usually not needed for Zebu.",
+  },
+  {
+    id: "DHAN",
+    name: "Dhan",
+    portalUrl: "https://web.dhan.co/",
+    supportsTotp: true,
+    requiresPassword: false,
+    helpText:
+      "You can either paste your Dhan access token, or generate it via TOTP.",
+    redirectHint: "Use this in Dhan developer settings if required.",
+  },
+  {
     id: "ZERODHA",
     name: "Zerodha",
     portalUrl: "https://kite.zerodha.com/",
-    requiresPaste: false,
+    supportsTotp: false,
     helpText:
-      "Login and approve access. If your app is configured properly, you’ll be redirected back and the token/code will auto-fill here.",
+      "Login and approve access. If your app is configured properly, you may be redirected back with a token/code.",
   },
   {
     id: "UPSTOX",
     name: "Upstox",
     portalUrl: "https://upstox.com/",
-    requiresPaste: false,
+    supportsTotp: false,
     helpText:
       "Login and authorize. You may be redirected back with a code/token depending on your app configuration.",
   },
@@ -47,43 +79,32 @@ const BROKERS: BrokerConfig[] = [
     id: "FYERS",
     name: "Fyers",
     portalUrl: "https://fyers.in/",
-    requiresPaste: false,
+    supportsTotp: false,
     helpText:
       "Login and authorize. You may be redirected back with an auth code depending on your app configuration.",
-  },
-  {
-    id: "DHAN",
-    name: "Dhan",
-    portalUrl: "https://web.dhan.co/",
-    requiresPaste: true,
-    helpText:
-      "Dhan often uses token generation from the portal. Generate an access token in the portal and paste it here.",
-    redirectHint: "Use this in Dhan developer settings if required.",
   },
   {
     id: "ANGELONE",
     name: "Angel One",
     portalUrl: "https://smartapi.angelbroking.com/",
-    requiresPaste: true,
+    supportsTotp: false,
     helpText:
-      "Angel One SmartAPI usually requires generating a session token/JWT via the portal or your app flow. Paste it here.",
-    redirectHint: "Use this in SmartAPI app settings if required.",
+      "Angel One typically uses portal/app flow. Paste the token/code if you receive it.",
   },
-  // Add more brokers here when needed:
-  // { id: "ALICEBLUE", name: "Alice Blue", portalUrl: "https://aliceblueonline.com/", requiresPaste: false/true },
-  // { id: "ZEBU", name: "Zebu", portalUrl: "https://zebuetrade.com/", requiresPaste: true },
 ];
 
-/** Tailwind class joiner */
 const clsx = (...p: Array<string | false | null | undefined>) => p.filter(Boolean).join(" ");
 
-function sanitizeToken(v: string) {
+function sanitizeValue(v: string) {
   const t = String(v ?? "").replace(/\s+/g, " ").trim();
   if (!t) return "";
-  // prevent user pasting full URL accidentally
   if (t.startsWith("http://") || t.startsWith("https://")) return "";
-  // avoid huge accidental pastes
   return t.slice(0, 4096);
+}
+
+function sanitizeTotp(v: string) {
+  const only = String(v ?? "").replace(/\D/g, "");
+  return only.slice(0, 8); // allow 6–8 digits
 }
 
 function StatusBadge({ status }: { status: BrokerStatus }) {
@@ -138,13 +159,13 @@ function InvalidLinkView() {
         <XCircle className="mx-auto mb-4 text-rose-500" size={48} />
         <h2 className="text-xl font-bold">Invalid Connection Link</h2>
         <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-          This page requires a valid <code className="text-slate-200">accountId</code> to link your broker.
-          Please contact your admin/support and request a correct link.
+          This page requires a valid <code className="text-slate-200">accountId</code> (tradingAccountId).
+          Example:
         </p>
         <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-left">
           <div className="text-[11px] text-slate-400">Example</div>
           <div className="mt-2 font-mono text-[12px] text-slate-200 break-all">
-            {window.location.origin}/connect-broker?accountId=123&broker=ZERODHA
+            {window.location.origin}/connect-broker?accountId=3&broker=ZEBU
           </div>
         </div>
       </div>
@@ -157,41 +178,44 @@ export default function ConnectIndiaBrokerPage() {
   const navigate = useNavigate();
   const query = useMemo(() => new URLSearchParams(search), [search]);
 
-  // required
-  const accountId = (query.get("accountId") || "").trim();
+  // required: tradingAccountId
+  const accountIdRaw = (query.get("accountId") || "").trim();
+  const tradingAccountId = Number(accountIdRaw);
 
   // optional
   const redirect = (query.get("redirect") || "").trim();
   const qsBrokerRaw = (query.get("broker") || "").trim().toUpperCase();
-
-  const safeBrokerId: IndiaBroker = isIndiaBroker(qsBrokerRaw as any)
-    ? (qsBrokerRaw as IndiaBroker)
-    : BROKERS[0].id;
+  const planId = (query.get("planId") || "").trim(); // optional (if you want to pass it)
 
   const initialBroker = useMemo(() => {
-    return BROKERS.find((b) => b.id === safeBrokerId) || BROKERS[0];
-  }, [safeBrokerId]);
+    const b = BROKERS.find((x) => x.id === (qsBrokerRaw as any));
+    return b || BROKERS[0];
+  }, [qsBrokerRaw]);
 
   const [selectedBroker, setSelectedBroker] = useState<BrokerConfig>(initialBroker);
+
+  const [mode, setMode] = useState<ConnectMode>(() =>
+    initialBroker.supportsTotp ? "GENERATE_TOTP" : "PASTE_TOKEN",
+  );
+
   const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [totp, setTotp] = useState("");
+
   const [status, setStatus] = useState<BrokerStatus>("Waiting");
   const [autoCaptured, setAutoCaptured] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Redirect URI that user might need to put in broker developer portal settings
-  // Prefer a stable callback path if you have one; for now we use the current route path.
-  const redirectUri = useMemo(() => {
-    // If you have a dedicated callback route, replace with:
-    // return `${window.location.origin}/connect/callback`;
-    return `${window.location.origin}${pathname}`;
-  }, [pathname]);
+  const [generateZebuAuthToken] = useGenerateZebuAuthTokenMutation();
+  const [generateIndianAuthToken] = useGenerateIndianAuthTokenMutation();
+  const [saveTradingAccountToken] = useSaveTradingAccountTokenMutation();
 
-  // Session storage key (scoped to accountId)
+  const redirectUri = useMemo(() => `${window.location.origin}${pathname}`, [pathname]);
+
   const storageKey = useMemo(() => {
-    return accountId ? `broker-connect:${accountId}` : "broker-connect:unknown";
-  }, [accountId]);
+    return Number.isFinite(tradingAccountId) ? `broker-connect:${tradingAccountId}` : "broker-connect:unknown";
+  }, [tradingAccountId]);
 
-  // Toast helper
   const toast = useMemo(
     () =>
       Swal.mixin({
@@ -217,9 +241,10 @@ export default function ConnectIndiaBrokerPage() {
     }
   }
 
-  // ✅ Restore session progress (token + broker) so switching tabs doesn’t lose state
+  // restore session
   useEffect(() => {
-    if (!accountId) return;
+    if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return;
+
     const raw = sessionStorage.getItem(storageKey);
     if (!raw) return;
 
@@ -228,41 +253,49 @@ export default function ConnectIndiaBrokerPage() {
 
       if (saved?.brokerId) {
         const b = BROKERS.find((x) => x.id === saved.brokerId);
-        if (b) setSelectedBroker(b);
+        if (b) {
+          setSelectedBroker(b);
+          setMode(b.supportsTotp ? "GENERATE_TOTP" : "PASTE_TOKEN");
+        }
       }
 
-      if (typeof saved?.token === "string" && saved.token) {
-        setToken(saved.token);
-        setStatus(saved.status === "Saved" ? "Saved" : "Ready");
-      } else if (saved?.status && typeof saved.status === "string") {
-        // keep minimal status restore
-        if (["Waiting", "Ready", "Saved", "Error"].includes(saved.status)) setStatus(saved.status);
+      if (typeof saved?.mode === "string" && (saved.mode === "PASTE_TOKEN" || saved.mode === "GENERATE_TOTP")) {
+        setMode(saved.mode);
       }
 
+      if (typeof saved?.token === "string") setToken(saved.token);
+      if (typeof saved?.password === "string") setPassword(saved.password);
+      if (typeof saved?.totp === "string") setTotp(saved.totp);
       if (typeof saved?.autoCaptured === "boolean") setAutoCaptured(saved.autoCaptured);
+      if (typeof saved?.status === "string" && ["Waiting", "Ready", "Saved", "Error"].includes(saved.status)) {
+        setStatus(saved.status);
+      }
     } catch {
       // ignore
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, storageKey]);
+  }, [storageKey]);
 
-  // ✅ Persist progress to sessionStorage
+  // persist session
   useEffect(() => {
-    if (!accountId) return;
+    if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return;
     sessionStorage.setItem(
       storageKey,
       JSON.stringify({
         brokerId: selectedBroker.id,
+        mode,
         token,
+        password,
+        totp,
         status,
         autoCaptured,
       }),
     );
-  }, [accountId, storageKey, selectedBroker.id, token, status, autoCaptured]);
+  }, [storageKey, tradingAccountId, selectedBroker.id, mode, token, password, totp, status, autoCaptured]);
 
-  // ✅ Auto-capture callback params (but DO NOT override already pasted token)
+  // auto-capture token/code from callback URL
   useEffect(() => {
-    if (!accountId) return;
+    if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return;
     if (token) return;
 
     const keys = [
@@ -281,47 +314,44 @@ export default function ConnectIndiaBrokerPage() {
     for (const k of keys) {
       const v = query.get(k);
       if (v) {
-        const clean = sanitizeToken(v);
+        const clean = sanitizeValue(v);
         if (clean) {
           setToken(clean);
           setAutoCaptured(true);
+          setMode("PASTE_TOKEN");
           setStatus("Ready");
         }
         break;
       }
     }
-  }, [accountId, query, token]);
+  }, [query, token, tradingAccountId]);
 
-  // clear storage after success (good hygiene)
   useEffect(() => {
-    if (!accountId) return;
-    if (status === "Saved") {
-      sessionStorage.removeItem(storageKey);
-    }
-  }, [status, accountId, storageKey]);
+    if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return;
+    if (status === "Saved") sessionStorage.removeItem(storageKey);
+  }, [status, storageKey, tradingAccountId]);
 
   function resetAll(keepBroker = false) {
     if (!keepBroker) setSelectedBroker(initialBroker);
+    setMode((keepBroker ? selectedBroker : initialBroker).supportsTotp ? "GENERATE_TOTP" : "PASTE_TOKEN");
     setToken("");
+    setPassword("");
+    setTotp("");
     setAutoCaptured(false);
     setSubmitting(false);
     setStatus("Waiting");
-    if (accountId) sessionStorage.removeItem(storageKey);
+    if (Number.isFinite(tradingAccountId) && tradingAccountId > 0) sessionStorage.removeItem(storageKey);
   }
 
   function handleBrokerSelect(b: BrokerConfig) {
     setSelectedBroker(b);
+    setMode(b.supportsTotp ? "GENERATE_TOTP" : "PASTE_TOKEN");
     setToken("");
+    setPassword("");
+    setTotp("");
     setAutoCaptured(false);
     setSubmitting(false);
     setStatus("Waiting");
-    if (accountId) {
-      // keep separate progress per account; overwrite session with new broker
-      sessionStorage.setItem(
-        storageKey,
-        JSON.stringify({ brokerId: b.id, token: "", status: "Waiting", autoCaptured: false }),
-      );
-    }
   }
 
   function handleLogin() {
@@ -340,72 +370,128 @@ export default function ConnectIndiaBrokerPage() {
     });
 
     if (!res.isConfirmed) return;
-
     setToken("");
     setAutoCaptured(false);
     setStatus("Waiting");
   }
 
-  async function handleSubmit() {
-    const clean = sanitizeToken(token);
-    if (!clean) {
-      Swal.fire({
-        icon: "warning",
-        title: "Token required",
-        text: "Paste a valid token/code. (Do not paste the full URL.)",
-      });
-      setToken("");
-      setStatus("Waiting");
-      return;
+  const canSubmit = useMemo(() => {
+    if (status === "Saved") return false;
+
+    if (mode === "PASTE_TOKEN") {
+      return !!sanitizeValue(token);
     }
 
-    // If already saved, do nothing
+    // GENERATE_TOTP
+    if (!selectedBroker.supportsTotp) return false;
+
+    const t = sanitizeTotp(totp);
+    if (!t || t.length < 6) return false;
+
+    if (selectedBroker.id === "ZEBU" && !sanitizeValue(password)) return false;
+    return true;
+  }, [mode, token, totp, password, selectedBroker, status]);
+
+  useEffect(() => {
     if (status === "Saved") return;
+
+    // set Ready if inputs valid, else Waiting
+    setStatus(canSubmit ? "Ready" : "Waiting");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSubmit]);
+
+  async function handleSubmit() {
+    if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return;
+
+    if (!canSubmit) {
+      Swal.fire({
+        icon: "warning",
+        title: "Missing details",
+        text: "Please fill the required fields.",
+      });
+      return;
+    }
 
     setSubmitting(true);
     setStatus("Waiting");
 
     try {
-      // ✅ TODO: wire backend later
-      // Example:
-      // await api.post("/broker/connect", { accountId, broker: selectedBroker.id, token: clean });
+      // 1) If paste token: just save it
+      if (mode === "PASTE_TOKEN") {
+        const clean = sanitizeValue(token);
+        await saveTradingAccountToken({
+          tradingAccountId,
+          token: clean,
+          planId: planId || undefined,
+        } as any).unwrap();
 
-      await new Promise((r) => setTimeout(r, 700)); // fake delay
+        setStatus("Saved");
+        toast.fire({ icon: "success", title: "Token saved successfully" });
+
+        if (redirect) setTimeout(() => navigate(redirect), 900);
+        return;
+      }
+
+      // 2) Generate via TOTP
+      let res: any;
+
+      if (selectedBroker.id === "ZEBU") {
+        res = await generateZebuAuthToken({
+          tradingAccountId,
+          totp: sanitizeTotp(totp),
+          password: sanitizeValue(password),
+        } as any).unwrap();
+      } else if (selectedBroker.id === "DHAN") {
+        res = await generateIndianAuthToken({
+          broker: "DHAN",
+          tradingAccountId,
+          totp: sanitizeTotp(totp),
+        } as any).unwrap();
+      } else {
+        throw new Error("This broker does not support TOTP generation.");
+      }
+
+      // If backend returns token, save it.
+      const generatedToken = extractTokenAny(res);
+      if (generatedToken) {
+        await saveTradingAccountToken({
+          tradingAccountId,
+          token: generatedToken,
+          planId: planId || undefined,
+        } as any).unwrap();
+      }
 
       setStatus("Saved");
-      toast.fire({ icon: "success", title: "Broker linked successfully" });
+      toast.fire({ icon: "success", title: res?.message || "Broker connected" });
 
-      if (redirect) {
-        setTimeout(() => navigate(redirect), 900);
-      }
+      if (redirect) setTimeout(() => navigate(redirect), 900);
     } catch (err: any) {
       console.error(err);
       setStatus("Error");
       Swal.fire({
         icon: "error",
         title: "Connection failed",
-        text: err?.response?.data?.message || err?.message || "Please try again.",
+        text: err?.data?.message || err?.message || "Please try again.",
       });
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (!accountId) return <InvalidLinkView />;
+  if (!Number.isFinite(tradingAccountId) || tradingAccountId <= 0) return <InvalidLinkView />;
 
   return (
     <div className="min-h-screen bg-[#050810] text-slate-50 selection:bg-emerald-500/30">
       <div className="mx-auto max-w-4xl px-4 py-12">
-        {/* Header */}
         <div className="mb-10 text-center md:text-left">
           <h1 className="text-3xl font-bold tracking-tight">Connect Broker</h1>
           <p className="mt-2 text-slate-400">
-            Securely link your trading account to enable automated execution.
+            Link your broker securely to enable automated execution.
           </p>
         </div>
 
         {/* Broker Grid */}
-        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+        <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
           {BROKERS.map((b) => (
             <button
               key={b.id}
@@ -426,6 +512,11 @@ export default function ConnectIndiaBrokerPage() {
               >
                 {b.name}
               </div>
+              {b.supportsTotp ? (
+                <div className="mt-1 text-[10px] text-slate-500">Token / TOTP</div>
+              ) : (
+                <div className="mt-1 text-[10px] text-slate-500">Portal flow</div>
+              )}
             </button>
           ))}
         </div>
@@ -436,25 +527,23 @@ export default function ConnectIndiaBrokerPage() {
             <div>
               <h2 className="text-xl font-semibold">Setup {selectedBroker.name}</h2>
               <p className="text-xs text-slate-500 mt-1">
-                Target Account:{" "}
-                <code className="text-emerald-400 break-all">{accountId}</code>
+                Trading Account ID:{" "}
+                <code className="text-emerald-400 break-all">{tradingAccountId}</code>
               </p>
             </div>
             <StatusBadge status={status} />
           </div>
 
-          {/* ✅ Premium success card (replaces steps to prevent ghost submissions) */}
+          {/* Saved View */}
           {status === "Saved" ? (
             <div className="mt-8 rounded-3xl border border-emerald-500/20 bg-emerald-500/5 p-6">
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="text-emerald-300" size={22} />
                 <div className="flex-1">
-                  <div className="text-lg font-semibold text-emerald-200">
-                    Connection verified
-                  </div>
+                  <div className="text-lg font-semibold text-emerald-200">Connection verified</div>
                   <div className="mt-1 text-sm text-slate-300">
-                    Your <b>{selectedBroker.name}</b> broker is linked for account{" "}
-                    <span className="font-mono text-slate-200">{accountId}</span>.
+                    Your <b>{selectedBroker.name}</b> broker is linked for trading account{" "}
+                    <span className="font-mono text-slate-200">{tradingAccountId}</span>.
                   </div>
 
                   <div className="mt-5 flex flex-wrap gap-3">
@@ -470,18 +559,10 @@ export default function ConnectIndiaBrokerPage() {
 
                     <button
                       type="button"
-                      onClick={() => resetAll(true)} // keep broker, clear token
+                      onClick={() => resetAll(true)}
                       className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-white/15"
                     >
                       Link again <RefreshCw size={16} />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => resetAll(false)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-700"
-                    >
-                      Connect another broker
                     </button>
                   </div>
                 </div>
@@ -495,8 +576,8 @@ export default function ConnectIndiaBrokerPage() {
                 />
                 <UtilityBtn
                   icon={<Copy size={14} />}
-                  label="Copy Account ID"
-                  onClick={() => copyToClipboard(accountId, "Account ID")}
+                  label="Copy Trading Account ID"
+                  onClick={() => copyToClipboard(String(tradingAccountId), "Trading Account ID")}
                 />
                 <UtilityBtn
                   icon={<Copy size={14} />}
@@ -509,14 +590,14 @@ export default function ConnectIndiaBrokerPage() {
           ) : (
             <>
               <div className="mt-8 grid gap-8 md:grid-cols-2">
-                {/* Step 1 */}
+                {/* Left: portal step */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-bold text-emerald-400">
                       1
                     </span>
                     <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">
-                      Authorize
+                      Open Broker Portal
                     </h3>
                   </div>
 
@@ -537,88 +618,183 @@ export default function ConnectIndiaBrokerPage() {
                       </p>
                     </div>
 
-                    {selectedBroker.requiresPaste ? (
-                      <div className="mt-3 text-[11px] text-amber-300/90">
-                        This broker usually requires manual token generation. Please generate the token in the portal and paste it in Step 2.
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-[11px] text-slate-500">
-                        If you’re redirected back here, the token/code will auto-fill.
-                      </div>
-                    )}
+                    <div className="mt-4 flex flex-wrap gap-4">
+                      <UtilityBtn
+                        icon={<Copy size={14} />}
+                        label="Copy Redirect URI"
+                        hint={selectedBroker.redirectHint}
+                        onClick={() => copyToClipboard(redirectUri, "Redirect URI")}
+                      />
+                      <UtilityBtn
+                        icon={<Copy size={14} />}
+                        label="Copy This Page Link"
+                        onClick={() => copyToClipboard(window.location.href, "Page link")}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Step 2 */}
+                {/* Right: token / totp */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-sky-500/20 text-xs font-bold text-sky-400">
                       2
                     </span>
                     <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">
-                      Verify Token
+                      Connect Method
                     </h3>
                   </div>
 
-                  <div className="group relative">
-                    <input
-                      type="text"
-                      placeholder="Paste token or code..."
-                      value={token}
-                      onChange={(e) => {
-                        const clean = sanitizeToken(e.target.value);
-                        setToken(clean);
-                        setAutoCaptured(false);
-                        setStatus(clean ? "Ready" : "Waiting");
-                      }}
-                      className="w-full rounded-xl border border-white/10 bg-black/40 py-4 pl-4 pr-12 text-sm outline-none transition-all focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/50"
-                    />
+                  {/* Mode switch */}
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/[0.02] p-2">
+                    <button
+                      type="button"
+                      onClick={() => setMode("PASTE_TOKEN")}
+                      className={clsx(
+                        "flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition-all",
+                        mode === "PASTE_TOKEN"
+                          ? "bg-sky-500 text-black"
+                          : "bg-white/5 text-slate-300 hover:bg-white/10",
+                      )}
+                    >
+                      <KeyRound size={16} />
+                      Paste Token
+                    </button>
 
-                    {token ? (
-                      <button
-                        type="button"
-                        onClick={clearTokenConfirm}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-rose-400"
-                        title="Clear token"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setMode("GENERATE_TOTP")}
+                      disabled={!selectedBroker.supportsTotp}
+                      className={clsx(
+                        "flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold transition-all",
+                        selectedBroker.supportsTotp
+                          ? mode === "GENERATE_TOTP"
+                            ? "bg-sky-500 text-black"
+                            : "bg-white/5 text-slate-300 hover:bg-white/10"
+                          : "bg-white/5 text-slate-600 cursor-not-allowed",
+                      )}
+                      title={selectedBroker.supportsTotp ? "Generate using TOTP" : "Not supported for this broker"}
+                    >
+                      <ShieldCheck size={16} />
+                      TOTP
+                    </button>
                   </div>
 
-                  {autoCaptured ? (
-                    <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
-                      <CheckCircle2 size={14} /> Auto-captured from callback
-                    </div>
-                  ) : null}
+                  {/* Inputs */}
+                  {mode === "PASTE_TOKEN" ? (
+                    <>
+                      <div className="group relative">
+                        <input
+                          type="text"
+                          placeholder="Paste access token here..."
+                          value={token}
+                          onChange={(e) => {
+                            const clean = sanitizeValue(e.target.value);
+                            setToken(clean);
+                            setAutoCaptured(false);
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-black/40 py-4 pl-4 pr-12 text-sm outline-none transition-all focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/50"
+                        />
 
+                        {token ? (
+                          <button
+                            type="button"
+                            onClick={clearTokenConfirm}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-rose-400"
+                            title="Clear token"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {autoCaptured ? (
+                        <div className="flex items-center gap-2 text-xs font-medium text-emerald-400">
+                          <CheckCircle2 size={14} /> Auto-captured from callback
+                        </div>
+                      ) : null}
+
+                      <div className="text-[11px] text-slate-500">
+                        Tip: Don’t paste the full URL. Paste only the token value.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {!selectedBroker.supportsTotp ? (
+                        <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs text-rose-200">
+                          This broker does not support TOTP generation. Please use “Paste Token”.
+                        </div>
+                      ) : (
+                        <>
+                          {/* ZEBU password */}
+                          {selectedBroker.id === "ZEBU" ? (
+                            <div>
+                              <label className="text-[11px] font-semibold text-slate-400">PASSWORD</label>
+                              <div className="mt-2 relative">
+                                <input
+                                  type="password"
+                                  value={password}
+                                  onChange={(e) => setPassword(sanitizeValue(e.target.value))}
+                                  placeholder="Enter Zebu password"
+                                  className="w-full rounded-xl border border-white/10 bg-black/40 py-4 pl-4 pr-11 text-sm outline-none transition-all focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/50"
+                                />
+                                <Lock className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                              </div>
+                              <div className="mt-2 text-[11px] text-slate-500">
+                                Used only to generate token (via backend).
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {/* TOTP */}
+                          <div>
+                            <label className="text-[11px] font-semibold text-slate-400">TOTP</label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={totp}
+                              onChange={(e) => setTotp(sanitizeTotp(e.target.value))}
+                              placeholder="Enter 6-digit TOTP"
+                              className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 py-4 pl-4 text-sm outline-none transition-all focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/50"
+                            />
+                            <div className="mt-2 text-[11px] text-slate-500">
+                              Enter the TOTP shown in your broker app.
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+
+                  {/* Error */}
                   {status === "Error" ? (
                     <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs text-rose-200">
-                      Connection failed. Please verify your token/code and try again.
+                      Connection failed. Please verify details and try again.
                     </div>
                   ) : null}
 
+                  {/* Submit */}
                   <button
                     type="button"
-                    disabled={!token || submitting}
+                    disabled={!canSubmit || submitting}
                     onClick={handleSubmit}
                     className={clsx(
                       "w-full rounded-xl py-4 font-bold transition-all",
-                      token && !submitting
+                      canSubmit && !submitting
                         ? "bg-sky-500 text-black hover:bg-sky-400 shadow-lg shadow-sky-500/20"
                         : "bg-white/5 text-slate-500 cursor-not-allowed",
                     )}
                   >
-                    {submitting ? "Processing..." : "Complete Connection"}
+                    {submitting ? "Processing..." : mode === "PASTE_TOKEN" ? "Save Token" : "Generate & Connect"}
                   </button>
 
-                  <div className="text-[11px] text-slate-500">
-                    Tip: Don’t paste the full URL. Paste only the token/code value.
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    This will securely link your broker for automated execution.
                   </div>
                 </div>
               </div>
 
-              {/* Footer Utilities */}
+              {/* Bottom utilities */}
               <div className="mt-10 flex flex-wrap gap-6 border-t border-white/5 pt-6">
                 <UtilityBtn
                   icon={<Copy size={14} />}
@@ -627,30 +803,18 @@ export default function ConnectIndiaBrokerPage() {
                 />
                 <UtilityBtn
                   icon={<Copy size={14} />}
-                  label="Copy My Account ID"
-                  onClick={() => copyToClipboard(accountId, "Account ID")}
-                />
-                <UtilityBtn
-                  icon={<Copy size={14} />}
-                  label="Copy Redirect URI"
-                  hint={selectedBroker.redirectHint}
-                  onClick={() => copyToClipboard(redirectUri, "Redirect URI")}
-                />
-                <UtilityBtn
-                  icon={<Copy size={14} />}
-                  label="Copy This Page Link"
-                  onClick={() => copyToClipboard(window.location.href, "Page link")}
+                  label="Copy Trading Account ID"
+                  onClick={() => copyToClipboard(String(tradingAccountId), "Trading Account ID")}
                 />
               </div>
 
-              {/* Secondary actions */}
               <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => resetAll(true)}
                   className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-white/15"
                 >
-                  Reset token
+                  Reset inputs
                 </button>
                 <button
                   type="button"

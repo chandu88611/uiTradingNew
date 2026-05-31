@@ -73,7 +73,7 @@ function buildMt5EaCode(args: {
   mt5LoginId: string;
   secret: string;
 }) {
-  const apiBase = args.apiBase || "https://backend.globalalgotrading.com";
+  const apiBase = args.apiBase || "https://backend.tradebro.io";
   const loginId = args.mt5LoginId || "";
   const secret = args.secret || "";
 

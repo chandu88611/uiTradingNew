@@ -11,6 +11,7 @@ export type AppRoute = { path: string; element: AnyCmp | LazyAnyCmp };
 
 // PUBLIC
 const Home = lazy(() => import("./pages/public/Landing"));
+const Support  = lazy(() => import("./pages/public/Support"));
 const About = lazy(() => import("./pages/public/Contact"));
 const SignIn = lazy(() => import("./pages/auth/SignIn"));
 const SignUp = lazy(() => import("./pages/auth/SignUp"));
@@ -24,6 +25,8 @@ const TradingDashboard = lazy(() => import("./pages/user/TradingWorkspace"));
 
 // USER PAGES
 const UserProfile = lazy(() => import("./pages/user/UserProfile"));
+
+const ReferralDashboard = lazy(() => import("./pages/user/refferall/Referral"));
 const StrategyConfigure = lazy(() => import("./pages/user/StrategyConfigure"));
 
 const UserBrokers = lazy(() => import("./pages/user/Dashboard"));
@@ -41,7 +44,7 @@ const OrderLogs = lazy(() => import("./pages/user/LivePositionsPage"));
 const CTraderCallbackPage =lazy(() => import("./pages/user/forex/CTraderCallbackPage"));
 // COPY TRADING (user side)
 // const CopyTrading = lazy(() => import("./pages/copytrading/CopyTrading2"));
-const CopyTrading = lazy(() => import("./pages/user/copy/CopyTradingSettings"));
+const CopyTrading = lazy(() => import("./pages/coppyFollow/CopyFollowing"));
 
 // USER SUBSCRIPTION PAGES
 const Subscriptions = lazy(() => import("./pages/subscriptions/SubscriptionWizardPage"));
@@ -83,6 +86,7 @@ const CopyTradingForexFollower = lazy(() => import("./pages/user/copy/forex/Copy
 export const publicRoutes: AppRoute[] = [
   { path: "/", element: Home },
   { path: "/about", element: About },
+  { path: "/support", element: Support },
 
   // auth
   { path: "/sign-in", element: SignIn },
@@ -103,6 +107,7 @@ export const userProtectedRoutes: AppRoute[] = [
 
   // profile (ONLY profile/billing/security now)
   { path: "/profile", element: UserProfile },
+  { path: "/referral-dashboard", element: ReferralDashboard },
 
   { path: "/user/use-strategy", element: StrategyConfigure },
 

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { Check, Info, Lock } from "lucide-react";
+import { useSaveStrategySelectionsMutation } from "../../../../services/profileSubscription.api";
 
 import { Market, MarketSummary, PlanInstance, PlanPrefs, PlanStrategyDef, StrategySelections } from "../types";
 import { clsx } from "../utils";
@@ -26,6 +27,8 @@ export function StrategiesTab({
   selections: StrategySelections;
   setSelections: (s: StrategySelections) => void;
 }) {
+  const [saveSelections, { isLoading: saving }] = useSaveStrategySelectionsMutation();
+
   const markets: Market[] = ["FOREX", "INDIA", "CRYPTO", "COPY"];
   const availableMarkets = markets.filter((m) => summary[m].hasPlan);
 
@@ -242,10 +245,17 @@ export function StrategiesTab({
           <button
             type="button"
             className={clsx(btn, btnPrimary)}
-            onClick={() => toast.success("Saved (dummy)")}
-            disabled={!selectedPlanId || isLockedMarket}
+            disabled={!selectedPlanId || isLockedMarket || saving}
+            onClick={async () => {
+              try {
+                await saveSelections({ strategySelections: selections }).unwrap();
+                toast.success("Strategy selections saved.");
+              } catch {
+                toast.error("Failed to save. Please try again.");
+              }
+            }}
           >
-            <Check size={16} /> Save
+            <Check size={16} /> {saving ? "Saving…" : "Save"}
           </button>
         </div>
 
@@ -260,7 +270,7 @@ export function StrategiesTab({
             </div>
           ) : planStrategies.length === 0 ? (
             <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
-              This plan has no strategies in this market (dummy data).
+              No strategies configured for this plan.
             </div>
           ) : (
             planStrategies.map((s) => {

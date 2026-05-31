@@ -9,6 +9,7 @@ import {
 } from "../crypto.types";
 import SlideOver from "../../forex/components/SlideOver";
 import ToggleRow from "../../forex/components/ToggleRow";
+import { useSaveStrategySelectionsMutation } from "../../../../services/profileSubscription.api";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -39,6 +40,8 @@ export default function CryptoStrategiesDrawer({
 
   uiDebugUnlockAll: boolean;
 }) {
+  const [saveSelections, { isLoading: saving }] = useSaveStrategySelectionsMutation();
+
   const planId = plan?.planId ?? "";
   const maxActive = plan?.limits?.maxActiveStrategies ?? 0;
 
@@ -117,7 +120,7 @@ export default function CryptoStrategiesDrawer({
             <div className="grid gap-3">
               {list.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
-                  No strategies configured for this plan (dummy).
+                  No strategies configured for this plan.
                 </div>
               ) : (
                 list.map((s) => {
@@ -172,10 +175,18 @@ export default function CryptoStrategiesDrawer({
 
           <button
             type="button"
-            onClick={() => toast.success("Saved (dummy)")}
-            className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold"
+            disabled={saving}
+            onClick={async () => {
+              try {
+                await saveSelections({ strategySelections: selections }).unwrap();
+                toast.success("Strategy selections saved.");
+              } catch {
+                toast.error("Failed to save. Please try again.");
+              }
+            }}
+            className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold disabled:opacity-60"
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       )}

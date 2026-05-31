@@ -8,6 +8,7 @@ import { soft, btn, btnGhost, btnPrimary, input } from "../style";
 import { StatusPill } from "../StatusPill";
 import { Toggle } from "../Toggle";
 import { Field } from "../Field";
+import { useSaveRiskLimitsMutation } from "../../../../services/userApi";
 
 export function RiskTab({
   risk,
@@ -18,6 +19,8 @@ export function RiskTab({
   setRisk: (r: RiskSettings) => void;
   summary: MarketSummary;
 }) {
+  const [saveRiskLimits, { isLoading: saving }] = useSaveRiskLimitsMutation();
+
   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   const setGuard = (patch: Partial<RiskGuard>) => {
@@ -302,8 +305,26 @@ export function RiskTab({
         <button className={clsx(btn, btnGhost)} type="button" onClick={() => toast.info("Reset (dummy)")}>
           Reset
         </button>
-        <button className={clsx(btn, btnPrimary)} type="button" onClick={() => toast.success("Risk saved (dummy)")}>
-          <Check size={16} /> Save
+        <button
+          className={clsx(btn, btnPrimary)}
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            try {
+              await saveRiskLimits({
+                isEnabled: risk.globalGuards.enabled,
+                dailyLossLimit: risk.globalGuards.dailyMaxLoss ?? null,
+                dailyProfitTarget: risk.globalGuards.dailyProfitTarget ?? null,
+                maxTradesPerDay: risk.maxTradesPerDay ?? null,
+                cooldownAfterLossMins: risk.cooldownAfterLossMins ?? null,
+              }).unwrap();
+              toast.success("Risk settings saved.");
+            } catch {
+              toast.error("Failed to save risk settings.");
+            }
+          }}
+        >
+          <Check size={16} /> {saving ? "Saving…" : "Save"}
         </button>
       </div>
     </div>

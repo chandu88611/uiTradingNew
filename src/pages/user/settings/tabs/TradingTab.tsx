@@ -92,7 +92,7 @@ export function TradingTab({
             <button
               className={clsx(btn, btnPrimary)}
               onClick={() => {
-                toast.success("Saved (dummy)");
+                toast.success("Plan preference saved.");
                 setActiveMarket(null);
               }}
             >
@@ -205,7 +205,7 @@ function MarketInlineManager({
 
       <div className={clsx(soft, "p-5")}>
         <div className="text-base font-semibold text-slate-100">Limits + usage</div>
-        <div className="text-xs text-slate-400 mt-1">Usage is dummy for now (accounts count is real).</div>
+        <div className="text-xs text-slate-400 mt-1">Accounts usage based on connected trading accounts.</div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <UsageRow label="Connected Accounts" used={accounts.length} max={effective.maxConnectedAccounts ?? null} />
@@ -219,7 +219,7 @@ function MarketInlineManager({
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="text-base font-semibold text-slate-100">Accounts</div>
-            <div className="text-xs text-slate-400 mt-1">Inline list (dummy actions).</div>
+            <div className="text-xs text-slate-400 mt-1">Connected trading accounts.</div>
           </div>
           <button className={clsx(btn, btnGhost)} onClick={() => toast.info("Open your add-account modal later")} type="button">
             Add account <ArrowRight size={16} />

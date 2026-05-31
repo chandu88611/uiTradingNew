@@ -4,14 +4,15 @@ import ApiAccountsManager, { ApiAccountItem, ApiTypeOption } from "../ApiAccount
 import CryptoStrategiesDrawer from "./components/CryptoStrategiesDrawer";
 import CryptoWebhookDrawer from "./components/CryptoWebhookDrawer";
 
-import { dummyCryptoPlans, dummyCryptoPlanStrategies } from "./crypto.dummy";
-import { CryptoPlanInstance, CryptoPlanSignalSettings, CryptoStrategySelections } from "./crypto.types";
+import { useGetMyCurrentSubscriptionQuery, UserSubscription, SubscriptionPlan } from "../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../services/tradingAccounts.api";
+import { CryptoPlanInstance, CryptoPlanSignalSettings, CryptoPlanStrategyDef, CryptoStrategySelections } from "./crypto.types";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-const UI_DEBUG_UNLOCK_ALL = true;
+const UI_DEBUG_UNLOCK_ALL = false;
 
 const btn =
   "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition";
@@ -45,6 +46,34 @@ function ensurePlanDefaults(planId: string, map: CryptoPlanSignalSettings): Cryp
   return { ...map, [planId]: { strategiesEnabled: true, webhookEnabled: false } };
 }
 
+function toCryptoPlan(sub: UserSubscription, plan: SubscriptionPlan | null | undefined): CryptoPlanInstance {
+  return {
+    planId: String(sub.id),
+    planName: plan?.name ?? `Plan #${sub.planId}`,
+    endDate: sub.endDate ?? null,
+    executionAllowed: sub.executionEnabled,
+    limits: {
+      maxConnectedAccounts: plan?.maxConnectedAccounts ?? 0,
+      maxActiveStrategies: plan?.maxActiveStrategies ?? 0,
+      maxDailyTrades: plan?.maxDailyTrades ?? undefined,
+      maxLotPerTrade: plan?.maxLotPerTrade ? Number(plan.maxLotPerTrade) : undefined,
+    },
+  };
+}
+
+function toCryptoStrategyDefs(plan: SubscriptionPlan | null | undefined, planId: string): CryptoPlanStrategyDef[] {
+  const raw: any[] = plan?.metadata?.strategies ?? plan?.featureFlags?.strategies ?? [];
+  if (!Array.isArray(raw) || !raw.length) return [];
+  return raw.map((s: any, i: number) => ({
+    id: String(s.id ?? `${planId}-strat-${i}`),
+    planId,
+    market: "CRYPTO" as const,
+    name: String(s.name ?? `Strategy ${i + 1}`),
+    description: String(s.description ?? ""),
+    tags: Array.isArray(s.tags) ? s.tags : [],
+  }));
+}
+
 const CRYPTO_TYPES: ApiTypeOption[] = [
   {
     value: "DELTA",
@@ -76,12 +105,46 @@ const CRYPTO_TYPES: ApiTypeOption[] = [
 ];
 
 export default function CryptoTradingPage() {
-  const plans = useMemo(() => dummyCryptoPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const sub = subData?.data ?? null;
+  const plan = sub ? (sub as any).plan as SubscriptionPlan | null : null;
+
+  const { data: accounts = [], isLoading: accountsLoading } = useListMyTradingAccountsQuery();
+  const cryptoAccounts = useMemo(
+    () => accounts.filter((a) => ["DELTA", "BINANCE_FUTURE", "COINDCX"].includes(String(a.broker ?? "").toUpperCase())),
+    [accounts]
+  );
+
+  const items: ApiAccountItem[] = useMemo(
+    () => cryptoAccounts.map((a) => ({
+      id: a.id,
+      type: String(a.broker ?? ""),
+      apiName: a.label ?? a.accountLabel ?? `Account ${a.id}`,
+      enabled: a.status === "verified",
+      createdAt: a.createdAt,
+      updatedAt: a.updatedAt,
+      meta: {},
+    })),
+    [cryptoAccounts]
+  );
+
+  const plans: CryptoPlanInstance[] = useMemo(
+    () => (sub && plan?.category === "CRYPTO" ? [toCryptoPlan(sub, plan)] : []),
+    [sub, plan]
+  );
+  const hasPlan = plans.length > 0;
 
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() =>
     getLS("crypto.selectedPlanId.v1", plans[0]?.planId ?? "")
   );
   useEffect(() => setLS("crypto.selectedPlanId.v1", selectedPlanId), [selectedPlanId]);
+
+  // Keep selectedPlanId in sync when plans load
+  useEffect(() => {
+    if (plans.length > 0 && !selectedPlanId) {
+      setSelectedPlanId(plans[0].planId);
+    }
+  }, [plans, selectedPlanId]);
 
   const selectedPlan: CryptoPlanInstance | null = useMemo(
     () => plans.find((p) => p.planId === selectedPlanId) ?? null,
@@ -114,32 +177,18 @@ export default function CryptoTradingPage() {
   const [openStrategies, setOpenStrategies] = useState(false);
   const [openWebhook, setOpenWebhook] = useState(false);
 
-  const [items, setItems] = useState<ApiAccountItem[]>([]);
-  useEffect(() => {
-    setItems([
-      {
-        id: 9001,
-        type: "DELTA",
-        apiName: "Main Delta",
-        enabled: true,
-        createdAt: "2026-01-10T10:00:00.000Z",
-        updatedAt: "2026-01-20T12:30:00.000Z",
-        meta: { apiKey: "****", apiSecret: "****" },
-      },
-    ]);
-  }, []);
-
   const maxAccounts = selectedPlan?.limits?.maxConnectedAccounts ?? 0;
   const maxStrategies = selectedPlan?.limits?.maxActiveStrategies ?? 0;
 
   const limitReached = maxAccounts > 0 && items.length >= maxAccounts;
-  const locked = (!selectedPlan && !UI_DEBUG_UNLOCK_ALL) || !selectedPlan;
+  const locked = !hasPlan || !selectedPlan;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-6">
-      {/* ✅ Forex-style header */}
+      {/* Forex-style header */}
       <div className="mb-4">
         <h1 className="text-xl font-semibold text-slate-100">Crypto APIs</h1>
+        {(subLoading || accountsLoading) && <p className="text-xs text-slate-400 mt-2">Loading…</p>}
 
         <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
           {/* left: plan + pills */}
@@ -194,7 +243,7 @@ export default function CryptoTradingPage() {
         </div>
       </div>
 
-      {/* ✅ MAIN: Accounts */}
+      {/* MAIN: Accounts */}
       <ApiAccountsManager
         title="Crypto APIs"
         typeLabel="API TYPE"
@@ -204,7 +253,7 @@ export default function CryptoTradingPage() {
         lockedReason="Upgrade to add more crypto APIs."
         uiDebugUnlockAll={UI_DEBUG_UNLOCK_ALL}
         items={items}
-        onItemsChange={setItems}
+        onItemsChange={() => {}}
       />
 
       {/* Drawers */}
@@ -221,7 +270,7 @@ export default function CryptoTradingPage() {
         open={openStrategies}
         onClose={() => setOpenStrategies(false)}
         plan={selectedPlan}
-        strategyDefs={dummyCryptoPlanStrategies}
+        strategyDefs={toCryptoStrategyDefs(plan, selectedPlanId)}
         planSignals={planSignals}
         setPlanSignals={setPlanSignals}
         selections={strategySelections}

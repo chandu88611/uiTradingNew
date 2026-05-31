@@ -12,6 +12,7 @@ import {
   Clock,
   Eye,
 } from "lucide-react";
+import { useGetMyCurrentSubscriptionQuery } from "../../../services/profileSubscription.api";
 
 type SubscriptionStatus = "active" | "expired" | "cancelled";
 
@@ -26,39 +27,6 @@ interface SubscriptionUser {
   joined: string;
 }
 
-const mockData: SubscriptionUser[] = [
-  {
-    id: "USR001",
-    name: "Rohit Sharma",
-    email: "rohit@example.com",
-    plan: "Profit Sharing",
-    rate: "20%",
-    status: "active",
-    nextBilling: "01 Mar 2025",
-    joined: "12 Jan 2025",
-  },
-  {
-    id: "USR002",
-    name: "Aakash Singh",
-    email: "aakash@example.com",
-    plan: "Profit Sharing",
-    rate: "25%",
-    status: "expired",
-    nextBilling: "01 Feb 2025",
-    joined: "05 Dec 2024",
-  },
-  {
-    id: "USR003",
-    name: "Meghana",
-    email: "meghana@example.com",
-    plan: "Profit Sharing",
-    rate: "18%",
-    status: "cancelled",
-    nextBilling: "-",
-    joined: "15 Oct 2024",
-  },
-];
-
 const statusColors = {
   active: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
   expired: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
@@ -71,13 +39,28 @@ const AdminSubscriptionsPage: React.FC = () => {
 
   const itemsPerPage = 6;
 
+  const { data: subData, isLoading } = useGetMyCurrentSubscriptionQuery();
+  const sub = subData?.data ?? null;
+  const plan = sub ? (sub as any).plan : null;
+
+  const subscriptions: SubscriptionUser[] = sub ? [{
+    id: String(sub.id),
+    name: "Your Account",
+    email: "",
+    plan: plan?.name ?? `Plan #${sub.planId}`,
+    rate: plan?.metadata?.profitSharingRate ?? "—",
+    status: (sub.statusV2 === "active" || sub.status === "active" ? "active" : sub.statusV2 === "expired" ? "expired" : "cancelled") as SubscriptionStatus,
+    nextBilling: sub.endDate ? new Date(sub.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+    joined: sub.startDate ? new Date(sub.startDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+  }] : [];
+
   const filtered = useMemo(() => {
-    return mockData.filter(
+    return subscriptions.filter(
       (u) =>
         u.name.toLowerCase().includes(search.toLowerCase()) ||
         u.email.toLowerCase().includes(search.toLowerCase())
     );
-  }, [search]);
+  }, [search, subscriptions]);
 
   const paginated = useMemo(() => {
     const start = (page - 1) * itemsPerPage;
@@ -135,6 +118,16 @@ const AdminSubscriptionsPage: React.FC = () => {
           </thead>
 
           <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">Loading...</td>
+              </tr>
+            )}
+            {!isLoading && paginated.length === 0 && (
+              <tr>
+                <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">No subscription found.</td>
+              </tr>
+            )}
             {paginated.map((u) => (
               <motion.tr
                 key={u.id}

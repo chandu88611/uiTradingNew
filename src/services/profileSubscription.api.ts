@@ -171,6 +171,30 @@ export const userSubscriptionApi = baseApi.injectEndpoints({
       }),
       providesTags: (_r, _e, id) => [{ type: "SubscriptionPlan", id }],
     }),
+
+    saveStrategySelections: builder.mutation<
+      { data: UserSubscription },
+      { strategySelections: Record<string, string[]> }
+    >({
+      query: (body) => ({
+        url: "/subscription/strategy-selections",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["UserSubscription"],
+    }),
+
+    saveWebhookSettings: builder.mutation<
+      { data: { id: number; isWebhookEnabled: boolean; webhookToken: string | null } },
+      { isWebhookEnabled: boolean }
+    >({
+      query: (body) => ({
+        url: "/subscription/webhook-settings",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["UserSubscription"],
+    }),
   }),
   overrideExisting: false,
 });
@@ -181,4 +205,6 @@ export const {
   useCancelMySubscriptionMutation,
   useListActivePlansQuery,
   useGetPlanByIdQuery,
+  useSaveStrategySelectionsMutation,
+  useSaveWebhookSettingsMutation,
 } = userSubscriptionApi;

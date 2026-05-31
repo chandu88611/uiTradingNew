@@ -20,13 +20,8 @@ import {
   GlobalRiskSettings,
 } from "./settingsHub.types";
 
-import {
-  dummyPlans,
-  dummyPlanSignals,
-  dummySelections,
-  dummyUsage,
-  dummyGlobalRisk,
-} from "./settingsHub.dummy";
+import { useGetMyCurrentSubscriptionQuery, SubscriptionPlan, UserSubscription } from "../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../services/tradingAccounts.api";
 
 import { clsx, getLS, setLS } from "./ui";
 
@@ -110,8 +105,30 @@ function Dot({ ok }: { ok: boolean }) {
 export default function SettingsHubPage() {
   const navigate = useNavigate();
 
-  // dummy now (later from API)
-  const plans: PlanInstance[] = useMemo(() => dummyPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const { data: taccounts = [] } = useListMyTradingAccountsQuery();
+  const sub = subData?.data ?? null;
+  const planRaw = sub ? (sub as any).plan as SubscriptionPlan | null : null;
+
+  const plans: PlanInstance[] = useMemo(() => {
+    if (!sub || !planRaw) return [];
+    const market: Market = (planRaw.category === "FOREX" ? "FOREX" : planRaw.category === "CRYPTO" ? "CRYPTO" : "INDIA") as Market;
+    return [{
+      planId: String(sub.id),
+      market,
+      planName: planRaw.name ?? `Plan #${sub.planId}`,
+      executionAllowed: sub.executionEnabled,
+      expiresAt: sub.endDate ?? null,
+      limits: {
+        maxConnectedAccounts: planRaw.maxConnectedAccounts ?? 0,
+        maxActiveStrategies: planRaw.maxActiveStrategies ?? 0,
+        maxDailyTrades: planRaw.maxDailyTrades ?? undefined,
+        maxLotPerTrade: planRaw.maxLotPerTrade ? Number(planRaw.maxLotPerTrade) : undefined,
+      },
+      strategiesAvailable: true,
+      webhookAvailable: true,
+    }];
+  }, [sub, planRaw]);
 
   const plansByMarket = useMemo(() => {
     const map: Record<Market, PlanInstance[]> = { FOREX: [], INDIA: [], CRYPTO: [], COPY: [] };
@@ -124,19 +141,31 @@ export default function SettingsHubPage() {
   }, [plansByMarket]);
 
   const [selections, setSelections] = useState<MarketPlanSelection>(() =>
-    getLS<MarketPlanSelection>(LS_KEYS.selections, dummySelections)
+    getLS<MarketPlanSelection>(LS_KEYS.selections, {})
   );
 
   const [planSignals, setPlanSignals] = useState<PlanSignalSettings>(() =>
-    getLS<PlanSignalSettings>(LS_KEYS.signals, dummyPlanSignals)
+    getLS<PlanSignalSettings>(LS_KEYS.signals, {})
   );
 
-  const [usageByMarket] = useState<UsageByMarket>(() =>
-    getLS<UsageByMarket>(LS_KEYS.usage, dummyUsage)
-  );
+  const usageByMarket: UsageByMarket = useMemo(() => {
+    const market = (planRaw?.category ?? "FOREX") as Market;
+    const accountsForMarket = taccounts.filter((a: any) =>
+      market === "FOREX" ? ["MT5", "CT", "CTRADER"].includes(String(a.broker ?? "").toUpperCase()) :
+      market === "INDIA" ? ["ZEBU", "DHAN", "KITE", "ANGEL"].includes(String(a.broker ?? "").toUpperCase()) :
+      market === "CRYPTO" ? ["DELTA", "COINDCX", "BINANCE_FUTURE"].includes(String(a.broker ?? "").toUpperCase()) : false
+    );
+    const emptyMarket = { accountsUsed: 0, strategiesEnabledCount: 0, tradesToday: null };
+    return {
+      FOREX: market === "FOREX" ? { accountsUsed: accountsForMarket.length, strategiesEnabledCount: null, tradesToday: null } : emptyMarket,
+      INDIA: market === "INDIA" ? { accountsUsed: accountsForMarket.length, strategiesEnabledCount: null, tradesToday: null } : emptyMarket,
+      CRYPTO: market === "CRYPTO" ? { accountsUsed: accountsForMarket.length, strategiesEnabledCount: null, tradesToday: null } : emptyMarket,
+      COPY: emptyMarket,
+    };
+  }, [taccounts, planRaw]);
 
   const [globalRisk, setGlobalRisk] = useState<GlobalRiskSettings>(() =>
-    getLS<GlobalRiskSettings>(LS_KEYS.global, dummyGlobalRisk)
+    getLS<GlobalRiskSettings>(LS_KEYS.global, { paused: false, pauseUntil: null, maxLossAmount: null, maxLossPercent: null, minGainAmount: null, minGainPercent: null, maxTradesPerDay: null, stopAfterConsecutiveLosses: null, blockOutsideHours: false, tradeFromHHMM: "09:15", tradeToHHMM: "15:30" } as GlobalRiskSettings)
   );
 
   // persist

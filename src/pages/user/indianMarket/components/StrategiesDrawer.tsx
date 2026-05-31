@@ -4,6 +4,7 @@ import SlideOver from "./SlideOver";
 import ToggleRow from "./ToggleRow";
 import { clsx, soft, chip, btn, btnPrimary } from "../ui";
 import { PlanInstance, PlanStrategyDef, PlanSignalSettings, StrategySelections } from "../india.types";
+import { useSaveStrategySelectionsMutation } from "../../../../services/profileSubscription.api";
 
 export default function StrategiesDrawer({
   open,
@@ -33,6 +34,8 @@ export default function StrategiesDrawer({
 
   uiDebugUnlockAll: boolean;
 }) {
+  const [saveSelections, { isLoading: saving }] = useSaveStrategySelectionsMutation();
+
   const planId = plan?.planId ?? "";
   const maxActive = plan?.limits?.maxActiveStrategies ?? 0;
 
@@ -136,7 +139,7 @@ export default function StrategiesDrawer({
             <div className="grid gap-3">
               {strategies.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
-                  No strategies configured (dummy).
+                  No strategies configured for this plan.
                 </div>
               ) : (
                 strategies.map((s) => {
@@ -197,8 +200,20 @@ export default function StrategiesDrawer({
             </div>
           </div>
 
-          <button type="button" className={clsx(btn, btnPrimary, "w-full")} onClick={() => toast.success("Saved (dummy)")}>
-            Save
+          <button
+            type="button"
+            className={clsx(btn, btnPrimary, "w-full")}
+            disabled={saving}
+            onClick={async () => {
+              try {
+                await saveSelections({ strategySelections: selections }).unwrap();
+                toast.success("Strategy selections saved.");
+              } catch {
+                toast.error("Failed to save. Please try again.");
+              }
+            }}
+          >
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       )}

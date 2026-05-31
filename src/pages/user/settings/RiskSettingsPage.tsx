@@ -2255,11 +2255,12 @@
 // }
 import React, { useMemo, useState } from "react";
 import { RefreshCw, ShieldCheck } from "lucide-react";
-import { dummyAccounts, dummyPlanStrategies, dummySubscriptions } from "./dummyData";
+import { useGetMyCurrentSubscriptionQuery, UserSubscription, SubscriptionPlan } from "../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../services/tradingAccounts.api";
 import { StrategySelections } from "./types";
 // ...
 
-import { Market, PlanPrefs, RiskSettings, TabKey } from "./types";
+import { Market, PlanPrefs, RiskSettings, TabKey, DummySubscription, DummyAccount } from "./types";
 import { applyPlanPrefs, buildMarketSummary, buildPlansByMarket, clsx } from "./utils";
 import { useLocalStorageState } from "./storage";
 import { pageWrap, card, btn, btnGhost } from "./style";
@@ -2332,12 +2333,51 @@ function defaultRiskSettings(): RiskSettings {
 export default function SettingsHubPage() {
   const [tab, setTab] = useState<TabKey>("TRADING");
 
-  // Dummy refresh
+  // Refresh tick for manual refresh
   const [refreshTick, setRefreshTick] = useState(0);
 
-  // dummy "data"
-  const subs = useMemo(() => dummySubscriptions, [refreshTick]);
-  const accounts = useMemo(() => dummyAccounts, [refreshTick]);
+  const { data: subData, refetch: refetchSub } = useGetMyCurrentSubscriptionQuery();
+  const { data: rawAccounts = [], refetch: refetchAccounts } = useListMyTradingAccountsQuery();
+
+  // Map real subscription to DummySubscription shape
+  const subs: DummySubscription[] = useMemo(() => {
+    const sub = subData?.data ?? null;
+    const plan = sub ? (sub as any).plan as SubscriptionPlan | null : null;
+    if (!sub || !plan) return [];
+    return [{
+      id: String(sub.id),
+      endDate: sub.endDate ?? null,
+      executionEnabled: sub.executionEnabled,
+      plan: {
+        id: String(plan.id ?? sub.planId),
+        name: plan.name ?? `Plan #${sub.planId}`,
+        category: plan.category ?? "FOREX",
+        executionEnabled: sub.executionEnabled,
+        limits: {
+          maxConnectedAccounts: plan.maxConnectedAccounts ?? 0,
+          maxActiveStrategies: plan.maxActiveStrategies ?? 0,
+          maxDailyTrades: plan.maxDailyTrades ?? undefined,
+          maxLotPerTrade: plan.maxLotPerTrade ? Number(plan.maxLotPerTrade) : undefined,
+        },
+      },
+    }];
+  }, [subData]);
+
+  // Map real accounts to DummyAccount shape
+  const accounts: DummyAccount[] = useMemo(() => rawAccounts.map((a: any) => {
+    const broker = String(a.broker ?? "").toUpperCase();
+    const market: Market =
+      ["MT5", "CT", "CTRADER", "FOREX"].includes(broker) ? "FOREX" :
+      ["ZEBU", "DHAN", "KITE", "ANGEL", "UPSTOX", "FYERS", "SHOONYA", "ALICEBLUE", "INDIA"].includes(broker) ? "INDIA" :
+      ["DELTA", "BINANCE_FUTURE", "COINDCX", "CRYPTO"].includes(broker) ? "CRYPTO" : "COPY";
+    return {
+      id: String(a.id),
+      market,
+      name: a.accountLabel ?? a.label ?? String(a.id),
+      provider: a.broker ?? broker,
+      login: a.externalAccountId ?? a.accountId ?? undefined,
+    };
+  }), [rawAccounts]);
 
   const baseSummary = useMemo(() => buildMarketSummary(subs), [subs]);
   const plansByMarket = useMemo(() => buildPlansByMarket(subs), [subs]);
@@ -2381,11 +2421,11 @@ const [strategySelections, setStrategySelections] = useLocalStorageState<Strateg
         <div>
           <h1 className="text-xl md:text-2xl font-semibold text-white">Settings</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Dummy mode: all settings are local-only. Later you can wire APIs without changing the UI structure.
+            Risk and trading settings are saved locally. Strategy and plan data is loaded from your subscription.
           </p>
         </div>
 
-        <button type="button" onClick={() => setRefreshTick((x) => x + 1)} className={clsx(btn, btnGhost, "rounded-full")}>
+        <button type="button" onClick={() => { setRefreshTick((x) => x + 1); refetchSub(); refetchAccounts(); }} className={clsx(btn, btnGhost, "rounded-full")}>
           <RefreshCw size={16} />
           Refresh
         </button>
@@ -2431,7 +2471,22 @@ const [strategySelections, setStrategySelections] = useLocalStorageState<Strateg
     plansByMarket={plansByMarket}
     planPrefs={planPrefs}
     setPlanPrefs={setPlanPrefs}
-    strategyDefs={dummyPlanStrategies}
+    strategyDefs={useMemo(() => {
+      const sub = subData?.data ?? null;
+      const plan = sub ? (sub as any).plan as SubscriptionPlan | null : null;
+      const raw: any[] = plan?.metadata?.strategies ?? plan?.featureFlags?.strategies ?? [];
+      if (!Array.isArray(raw) || !raw.length) return [];
+      const planId = String(sub?.id ?? "");
+      const market = (plan?.category ?? "FOREX") as Market;
+      return raw.map((s: any, i: number) => ({
+        id: String(s.id ?? `${planId}-strat-${i}`),
+        planId,
+        market,
+        name: String(s.name ?? `Strategy ${i+1}`),
+        description: String(s.description ?? ""),
+        tags: Array.isArray(s.tags) ? s.tags : [],
+      }));
+    }, [subData])}
     selections={strategySelections}
     setSelections={setStrategySelections}
   />

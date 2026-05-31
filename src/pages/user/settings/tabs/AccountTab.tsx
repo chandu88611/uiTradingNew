@@ -11,13 +11,13 @@ export function AccountTab({ subs, summary }: { subs: DummySubscription[]; summa
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white">Account</h2>
-        <p className="text-xs text-slate-400 mt-1">Inline subscription summary (dummy), market status.</p>
+        <p className="text-xs text-slate-400 mt-1">Your active subscriptions and market status.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className={`${soft} p-5`}>
           <div className="text-sm font-semibold text-slate-100">Active subscriptions</div>
-          <div className="text-xs text-slate-400 mt-1">Non-expired subscriptions from dummy data.</div>
+          <div className="text-xs text-slate-400 mt-1">Active subscriptions from your account.</div>
 
           <div className="mt-4 grid gap-2">
             {activeSubs.length === 0 ? (

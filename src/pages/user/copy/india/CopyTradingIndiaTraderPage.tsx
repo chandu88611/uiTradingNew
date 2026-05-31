@@ -8,7 +8,8 @@ import IndiaStrategiesDrawer from "./components/IndiaStrategiesDrawer";
 import IndiaMasterAccountsSection from "./components/IndiaMasterAccountsSection";
 import IndiaFollowerRequestsSection from "./components/IndiaFollowerRequestsSection";
 
-import { dummyIndiaCopyPlans, dummyIndiaStrategies, seedFollowRequests, seedMasterSlots } from "./copyIndia.dummy";
+import { useGetMyMasterQuery, useListMyFollowersQuery } from "../../../../services/copyTrading.api";
+import { useGetMyCurrentSubscriptionQuery } from "../../../../services/profileSubscription.api";
 import type { CopyPlanInstance, PlanSignalSettings, StrategySelections, IndiaMasterSlot, IndiaFollowRequest } from "./copyIndia.types";
 
 function ensureSignals(planId: string, map: PlanSignalSettings): PlanSignalSettings {
@@ -17,7 +18,24 @@ function ensureSignals(planId: string, map: PlanSignalSettings): PlanSignalSetti
 }
 
 export default function CopyTradingIndiaTraderPage() {
-  const plans = useMemo(() => dummyIndiaCopyPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const sub = subData?.data ?? null;
+  const plan_raw = sub ? (sub as any).plan : null;
+
+  const plans: CopyPlanInstance[] = useMemo(() => {
+    if (!sub || plan_raw?.category !== "INDIA") return [];
+    return [{
+      planId: String(sub.id),
+      planName: plan_raw?.name ?? `Plan #${sub.planId}`,
+      executionAllowed: sub.executionEnabled,
+      limits: {
+        maxMasterAccounts: plan_raw?.maxConnectedAccounts ?? 2,
+        maxFollowers: plan_raw?.metadata?.maxFollowers ?? 20,
+        maxStrategies: plan_raw?.maxActiveStrategies ?? 1,
+      },
+    }];
+  }, [sub, plan_raw]);
+
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() => getLS("ct.india.selectedPlanId.v1", plans[0]?.planId ?? ""));
   useEffect(() => setLS("ct.india.selectedPlanId.v1", selectedPlanId), [selectedPlanId]);
 
@@ -42,13 +60,45 @@ export default function CopyTradingIndiaTraderPage() {
 
   const enabledStrategyCount = useMemo(() => (plan ? (selections[plan.planId] ?? []).length : 0), [plan, selections]);
 
-  // MASTER SLOTS (TRADER)
-  const [slots, setSlots] = useState<IndiaMasterSlot[]>(() => getLS("ct.india.masterSlots.v1", seedMasterSlots));
-  useEffect(() => setLS("ct.india.masterSlots.v1", slots), [slots]);
+  // MASTER SLOTS (TRADER) — from API
+  const { data: master, isLoading: masterLoading } = useGetMyMasterQuery();
+  const slots: IndiaMasterSlot[] = useMemo(() => {
+    if (!master) return [];
+    return [{
+      id: String(master.id),
+      masterId: String(master.id),
+      broker: "DHAN" as const,
+      nickname: master.name ?? "My Master",
+      enabled: master.isActive ?? true,
+      createdAt: master.createdAt ?? "",
+      updatedAt: master.updatedAt ?? "",
+    }];
+  }, [master]);
 
-  // FOLLOW REQUESTS (TRADER)
-  const [requests, setRequests] = useState<IndiaFollowRequest[]>(() => getLS("ct.india.followRequests.v1", seedFollowRequests));
-  useEffect(() => setLS("ct.india.followRequests.v1", requests), [requests]);
+  // FOLLOW REQUESTS (TRADER) — from API
+  const { data: followersData, isLoading: followersLoading } = useListMyFollowersQuery({});
+  const requests: IndiaFollowRequest[] = useMemo(() => {
+    const items = followersData?.items ?? [];
+    return items.map((f) => ({
+      id: String(f.id),
+      masterId: String(f.masterId),
+      followerName: String(f.followerUserId),
+      status: (f.status === "active" ? "APPROVED" : f.status === "pending" ? "PENDING" : "REJECTED") as "PENDING" | "APPROVED" | "REJECTED",
+      createdAt: f.createdAt ?? "",
+      updatedAt: f.updatedAt ?? "",
+    }));
+  }, [followersData]);
+
+  // Strategy defs from plan metadata
+  const strategyDefs = useMemo(() => {
+    const raw: any[] = plan_raw?.metadata?.strategies ?? [];
+    if (!Array.isArray(raw) || !raw.length) return [];
+    return raw.map((s: any, i: number) => ({
+      id: String(s.id ?? `strat-${i}`),
+      name: String(s.name ?? `Strategy ${i+1}`),
+      description: String(s.description ?? ""),
+    }));
+  }, [plan_raw]);
 
   // drawers
   const [openWebhook, setOpenWebhook] = useState(false);
@@ -60,6 +110,7 @@ export default function CopyTradingIndiaTraderPage() {
 
   return (
     <div className={page}>
+      {(subLoading || masterLoading || followersLoading) && <p className="text-xs text-slate-400 p-4">Loading…</p>}
       <IndiaPlanHeader
         title="Copy Trading • India (Trader)"
         plans={plans}
@@ -80,11 +131,11 @@ export default function CopyTradingIndiaTraderPage() {
       {/* ✅ ACCOUNTS FIRST */}
       <div className="space-y-6">
         <div className="rounded-2xl border border-white/5 bg-slate-900/35 backdrop-blur p-5 md:p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <IndiaMasterAccountsSection slots={slots} setSlots={setSlots} maxAccounts={maxAccounts} />
+          <IndiaMasterAccountsSection slots={slots} setSlots={() => {}} maxAccounts={maxAccounts} />
         </div>
 
         <div className="rounded-2xl border border-white/5 bg-slate-900/35 backdrop-blur p-5 md:p-6 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <IndiaFollowerRequestsSection requests={requests} setRequests={setRequests} />
+          <IndiaFollowerRequestsSection requests={requests} setRequests={() => {}} />
         </div>
       </div>
 
@@ -103,7 +154,7 @@ export default function CopyTradingIndiaTraderPage() {
         plan={plan}
         planSignals={planSignals}
         setPlanSignals={setPlanSignals}
-        strategies={dummyIndiaStrategies}
+        strategies={strategyDefs}
         selections={selections}
         setSelections={setSelections}
       />

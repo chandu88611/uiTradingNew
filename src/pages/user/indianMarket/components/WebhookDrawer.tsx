@@ -6,6 +6,7 @@ import ToggleRow from "./ToggleRow";
 import { clsx, soft, input, btn, btnGhost, btnPrimary, chip } from "../ui";
 import { PlanInstance, PlanSignalSettings } from "../india.types";
 import { ApiAccountItem } from "../../ApiAccountsManager";
+import { useSaveWebhookSettingsMutation, useGetMyCurrentSubscriptionQuery } from "../../../../services/profileSubscription.api";
 
 function safeOrigin() {
   if (typeof window === "undefined") return "https://your-domain.com";
@@ -56,6 +57,10 @@ export default function WebhookDrawer({
 
   const webhookEnabled = !!signals?.webhookEnabled;
 
+  const [saveWebhook, { isLoading: saving }] = useSaveWebhookSettingsMutation();
+  const { data: subData } = useGetMyCurrentSubscriptionQuery();
+  const realToken = (subData?.data as any)?.webhookToken ?? null;
+
   const url = useMemo(() => {
     // ✅ change to your real endpoint
     return `${safeOrigin()}/api/webhooks/tradingview/india`;
@@ -74,6 +79,8 @@ export default function WebhookDrawer({
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  const displayToken = realToken ?? signals?.webhookSecret ?? "";
 
   const defaultAccountId = signals?.webhookDefaultAccountId ?? (accounts[0]?.id ? String(accounts[0].id) : "");
 
@@ -168,8 +175,8 @@ export default function WebhookDrawer({
               <div className="text-sm font-semibold text-slate-100">Secret</div>
               <div className="text-xs text-slate-400 mt-1">Put this inside JSON and validate on server.</div>
               <div className="mt-3 flex gap-2">
-                <input className={clsx(input, "mt-0")} readOnly value={secret || ""} />
-                <button type="button" className={clsx(btn, btnGhost)} onClick={() => copyText(secret || "")}>
+                <input className={clsx(input, "mt-0")} readOnly value={displayToken} />
+                <button type="button" className={clsx(btn, btnGhost)} onClick={() => copyText(displayToken)}>
                   <Copy size={16} /> Copy
                 </button>
               </div>
@@ -205,8 +212,20 @@ export default function WebhookDrawer({
             </div>
           </div>
 
-          <button type="button" className={clsx(btn, btnPrimary, "w-full")} onClick={() => toast.success("Saved (dummy)")}>
-            Save
+          <button
+            type="button"
+            className={clsx(btn, btnPrimary, "w-full")}
+            disabled={saving}
+            onClick={async () => {
+              try {
+                await saveWebhook({ isWebhookEnabled: webhookEnabled }).unwrap();
+                toast.success("Webhook settings saved.");
+              } catch {
+                toast.error("Failed to save webhook settings.");
+              }
+            }}
+          >
+            {saving ? "Saving…" : "Save"}
           </button>
 
           <div className="text-[11px] text-slate-500">

@@ -242,6 +242,21 @@ updateExecutionProvider: builder.mutation<
       }),
       invalidatesTags: ["User"],
     }),
+
+    saveRiskLimits: builder.mutation<any, {
+      isEnabled?: boolean;
+      dailyLossLimit?: number | null;
+      dailyProfitTarget?: number | null;
+      maxTradesPerDay?: number | null;
+      cooldownAfterLossMins?: number | null;
+    }>({
+      query: (body) => ({
+        url: "/user/risk-limits",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["User"],
+    }),
   }),
 
   
@@ -272,5 +287,6 @@ export const {
   useGetBillingDetailsQuery,
   useSaveBillingDetailsMutation,
   useUpdateTradeStatusMutation,
-  useUpdateExecutionProviderMutation
+  useUpdateExecutionProviderMutation,
+  useSaveRiskLimitsMutation,
 } = userApi;

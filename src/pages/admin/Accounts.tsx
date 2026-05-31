@@ -13,6 +13,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useListMyTradingAccountsQuery } from "../../services/tradingAccounts.api";
+import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
 
 /* -------------------- Types -------------------- */
 type Broker = "zerodha" | "dhan" | "angel" | "upstox";
@@ -27,46 +29,6 @@ interface TradingAccount {
   lastSync: string;
 }
 
-/* -------------------- Mock Data -------------------- */
-const MOCK_ACCOUNTS: TradingAccount[] = [
-  {
-    id: "1",
-    broker: "zerodha",
-    name: "Main Equity",
-    clientId: "ZR12345",
-    status: "connected",
-    balance: 152430.52,
-    lastSync: "2 mins ago",
-  },
-  {
-    id: "2",
-    broker: "dhan",
-    name: "Scalping Account",
-    clientId: "DH99887",
-    status: "expired",
-    balance: 45000.0,
-    lastSync: "Session expired",
-  },
-  {
-    id: "3",
-    broker: "angel",
-    name: "Options Auto",
-    clientId: "AG77112",
-    status: "disconnected",
-    balance: 72500.1,
-    lastSync: "10 hours ago",
-  },
-  {
-    id: "4",
-    broker: "upstox",
-    name: "Swing Account",
-    clientId: "UP55991",
-    status: "connected",
-    balance: 98900,
-    lastSync: "Just now",
-  },
-];
-
 const brokerLogos: Record<Broker, string> = {
   zerodha: "/brokers/zerodha.png",
   dhan: "/brokers/dhan.png",
@@ -76,8 +38,18 @@ const brokerLogos: Record<Broker, string> = {
 
 /* -------------------- Component -------------------- */
 const TradingAccountsPage: React.FC = () => {
-  const [accounts, setAccounts] =
-    useState<TradingAccount[]>(MOCK_ACCOUNTS);
+  const { data: accounts = [], isLoading } = useListMyTradingAccountsQuery();
+  const { data: subData } = useGetMyCurrentSubscriptionQuery();
+
+  const tradingAccounts: TradingAccount[] = accounts.map((a: any) => ({
+    id: String(a.id),
+    broker: String(a.broker ?? "Unknown").toLowerCase() as any,
+    name: a.accountLabel ?? a.label ?? `Account ${a.id}`,
+    clientId: String(a.externalAccountId ?? a.accountId ?? a.id),
+    status: (a.status === "verified" ? "connected" : a.status === "blocked" ? "expired" : "disconnected") as "connected" | "disconnected" | "expired",
+    balance: 0, // not available from API
+    lastSync: a.updatedAt ? new Date(a.updatedAt).toLocaleString("en-IN") : "—",
+  }));
 
   const [openModal, setOpenModal] = useState(false);
   const [selectedBroker, setSelectedBroker] =
@@ -96,36 +68,6 @@ const TradingAccountsPage: React.FC = () => {
   /* Pagination */
   const ITEMS_PER_PAGE = 6;
   const [page, setPage] = useState(1);
-
-  /* -------------------- Actions -------------------- */
-  const removeAccount = (id: string) =>
-    setAccounts((prev) => prev.filter((a) => a.id !== id));
-
-  const reconnect = (id: string) =>
-    setAccounts((prev) =>
-      prev.map((a) =>
-        a.id === id
-          ? { ...a, status: "connected", lastSync: "Just now" }
-          : a
-      )
-    );
-
-  const addAccount = () => {
-    const newAcc: TradingAccount = {
-      id: Date.now().toString(),
-      broker: selectedBroker,
-      name: selectedBroker.toUpperCase() + " Account",
-      clientId:
-        selectedBroker.slice(0, 2).toUpperCase() +
-        Math.floor(Math.random() * 99999),
-      status: "connected",
-      balance: 0,
-      lastSync: "Just now",
-    };
-
-    setAccounts((prev) => [...prev, newAcc]);
-    setOpenModal(false);
-  };
 
   /* -------------------- Helpers -------------------- */
   const statusBadge = (status: TradingAccount["status"]) => {
@@ -153,7 +95,7 @@ const TradingAccountsPage: React.FC = () => {
 
   /* -------------------- Filter + Search + Paginate -------------------- */
   const filtered = useMemo(() => {
-    return accounts.filter((acc) => {
+    return tradingAccounts.filter((acc) => {
       const matchSearch =
         acc.name.toLowerCase().includes(search.toLowerCase()) ||
         acc.clientId.toLowerCase().includes(search.toLowerCase()) ||
@@ -164,7 +106,7 @@ const TradingAccountsPage: React.FC = () => {
 
       return matchSearch && matchStatus;
     });
-  }, [search, statusFilter, accounts]);
+  }, [search, statusFilter, tradingAccounts]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
 
@@ -255,6 +197,16 @@ const TradingAccountsPage: React.FC = () => {
         {/* -------------------- GRID VIEW -------------------- */}
         {viewMode === "grid" && (
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {isLoading && (
+              <div className="col-span-full flex justify-center items-center py-16">
+                <div className="h-8 w-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+            {!isLoading && tradingAccounts.length === 0 && (
+              <div className="col-span-full flex justify-center items-center py-16 text-slate-400 text-sm">
+                No trading accounts found
+              </div>
+            )}
             {paginated.map((acc) => (
               <motion.div
                 key={acc.id}
@@ -296,14 +248,12 @@ const TradingAccountsPage: React.FC = () => {
                 {/* ACTIONS */}
                 <div className="mt-4 flex items-center justify-between">
                   <button
-                    onClick={() => reconnect(acc.id)}
                     className="flex items-center gap-1 text-[13px] text-emerald-400 hover:text-emerald-300"
                   >
                     <RefreshCcw size={14} /> Refresh
                   </button>
 
                   <button
-                    onClick={() => removeAccount(acc.id)}
                     className="flex items-center gap-1 text-[13px] text-rose-400 hover:text-rose-300"
                   >
                     <Trash2 size={14} /> Remove
@@ -329,6 +279,22 @@ const TradingAccountsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
+                {isLoading && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center">
+                      <div className="flex justify-center">
+                        <div className="h-6 w-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!isLoading && tradingAccounts.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">
+                      No trading accounts found
+                    </td>
+                  </tr>
+                )}
                 {paginated.map((acc) => (
                   <tr
                     key={acc.id}
@@ -355,14 +321,12 @@ const TradingAccountsPage: React.FC = () => {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-3">
                         <button
-                          onClick={() => reconnect(acc.id)}
                           className="text-emerald-400 hover:text-emerald-300"
                         >
                           <RefreshCcw size={16} />
                         </button>
 
                         <button
-                          onClick={() => removeAccount(acc.id)}
                           className="text-rose-400 hover:text-rose-300"
                         >
                           <Trash2 size={16} />
@@ -463,7 +427,7 @@ const TradingAccountsPage: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={addAccount}
+                  onClick={() => setOpenModal(false)}
                   className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-900 px-4 py-2 rounded-xl font-medium shadow-[0_0_20px_rgba(16,185,129,0.4)]"
                 >
                   Continue <ArrowRight size={16} />

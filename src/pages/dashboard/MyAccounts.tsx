@@ -1,4 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useGetAllTradesQuery } from "../../services/trades.api";
+import { useListMyTradingAccountsQuery } from "../../services/tradingAccounts.api";
+import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
+import { useLazyGetZebuHoldingsQuery } from "../../services/zebu.api";
 
 type Timeframe = "today" | "week" | "month";
 
@@ -46,154 +50,9 @@ type PnlPoint = {
   value: number;
 };
 
-/** ---------- DEMO DATA ---------- **/
+/** ---------- SMALL UTILITIES ---------- **/
 
 const now = new Date();
-
-const mockPnlSeries: Record<Timeframe, PnlPoint[]> = {
-  today: [
-    { timeLabel: "09:30", value: 0 },
-    { timeLabel: "10:00", value: 1200 },
-    { timeLabel: "10:30", value: 800 },
-    { timeLabel: "11:00", value: 2000 },
-    { timeLabel: "11:30", value: 1500 },
-    { timeLabel: "12:00", value: 2600 },
-  ],
-  week: [
-    { timeLabel: "Mon", value: 500 },
-    { timeLabel: "Tue", value: -300 },
-    { timeLabel: "Wed", value: 2100 },
-    { timeLabel: "Thu", value: 1800 },
-    { timeLabel: "Fri", value: 3200 },
-  ],
-  month: [
-    { timeLabel: "W1", value: -800 },
-    { timeLabel: "W2", value: 1200 },
-    { timeLabel: "W3", value: 3400 },
-    { timeLabel: "W4", value: 5100 },
-  ],
-};
-
-const mockTrades: Trade[] = [
-  {
-    id: "T1",
-    timestamp: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
-    symbol: "NSE:RELIANCE",
-    side: "BUY",
-    qty: 50,
-    price: 2950,
-    broker: "Dhan",
-    strategy: "Opening Range Breakout",
-    pnl: 850,
-  },
-  {
-    id: "T2",
-    timestamp: new Date(now.getTime() - 25 * 60 * 1000).toISOString(),
-    symbol: "NSE:NIFTY24APRFUT",
-    side: "SELL",
-    qty: 75,
-    price: 22650,
-    broker: "Angel One",
-    strategy: "Index Scalper",
-    pnl: -300,
-  },
-  {
-    id: "T3",
-    timestamp: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-    symbol: "NSE:BANKNIFTY24APR48000CE",
-    side: "BUY",
-    qty: 40,
-    price: 185,
-    broker: "Zerodha",
-    strategy: "Options Trend Follower",
-    pnl: 1200,
-  },
-  {
-    id: "T4",
-    timestamp: new Date(now.getTime() - 26 * 60 * 60 * 1000).toISOString(),
-    symbol: "MCX:GOLDM",
-    side: "SELL",
-    qty: 10,
-    price: 76000,
-    broker: "Motilal Oswal",
-    strategy: "Commodity Swing",
-    pnl: 500,
-  },
-];
-
-const mockPositions: Position[] = [
-  {
-    id: "P1",
-    symbol: "NSE:RELIANCE",
-    side: "LONG",
-    qty: 50,
-    avgPrice: 2900,
-    currentPrice: 2955,
-    unrealizedPnl: 2750,
-  },
-  {
-    id: "P2",
-    symbol: "NSE:NIFTY24APRFUT",
-    side: "SHORT",
-    qty: 25,
-    avgPrice: 22720,
-    currentPrice: 22680,
-    unrealizedPnl: 1000,
-  },
-];
-
-const mockStrategies: Strategy[] = [
-  {
-    id: "S1",
-    name: "Opening Range Breakout",
-    status: "active",
-    signalsToday: 12,
-    winRate: 71,
-  },
-  {
-    id: "S2",
-    name: "Index Scalper",
-    status: "paused",
-    signalsToday: 5,
-    winRate: 60,
-  },
-  {
-    id: "S3",
-    name: "Options Trend Follower",
-    status: "active",
-    signalsToday: 8,
-    winRate: 64,
-  },
-];
-
-const mockAccounts: BrokerAccount[] = [
-  {
-    id: "B1",
-    broker: "Motilal Oswal",
-    accountId: "MO-12345",
-    balance: 150000,
-    marginUsed: 45000,
-    status: "connected",
-  },
-  {
-    id: "B2",
-    broker: "Zerodha",
-    accountId: "ZD-88721",
-    balance: 85000,
-    marginUsed: 25000,
-    status: "connected",
-  },
-  {
-    id: "B3",
-    broker: "Dhan",
-    accountId: "DH-55102",
-    balance: 45000,
-    marginUsed: 5000,
-    status: "expired",
-  },
-];
-
-/** ---------- SMALL UTILITIES ---------- **/
 
 function formatCurrency(value: number): string {
   return `₹${value.toLocaleString("en-IN", {
@@ -277,12 +136,72 @@ const PnlSparkline: React.FC<{ data: PnlPoint[] }> = ({ data }) => {
 
 const UserDashboard: React.FC = () => {
   const [timeframe, setTimeframe] = useState<Timeframe>("today");
-  const [strategies, setStrategies] = useState<Strategy[]>(mockStrategies);
   const [showOnlyProfitable, setShowOnlyProfitable] = useState(false);
 
+  const { data: tradesData, isLoading: tradesLoading } = useGetAllTradesQuery({ start: 0, count: 20 });
+  const { data: accounts = [], isLoading: accountsLoading } = useListMyTradingAccountsQuery();
+  const { data: subData } = useGetMyCurrentSubscriptionQuery();
+
+  const rawArr = useMemo(() => {
+    const d = tradesData?.data ?? tradesData;
+    return Array.isArray(d) ? d : [];
+  }, [tradesData]);
+
+  const trades = useMemo(() => rawArr.map((t: any) => ({
+    id: String(t.id ?? ""),
+    timestamp: t.signalTime ?? t.createdAt ?? new Date().toISOString(),
+    symbol: String(t.symbol ?? ""),
+    side: String(t.action ?? t.side ?? "BUY").toUpperCase() === "SELL" ? "SELL" : "BUY",
+    qty: Number(t.volume ?? t.qty ?? 0),
+    price: Number(t.price ?? t.avgPrice ?? 0),
+    broker: String(t.brokerCode ?? t.broker ?? ""),
+    strategy: String(t.strategyName ?? t.strategy ?? ""),
+    pnl: Number(t.pnl ?? 0),
+  })), [rawArr]);
+
+  const brokerAccounts = useMemo(() => accounts.map((a: any) => ({
+    id: String(a.id),
+    broker: String(a.broker ?? a.brokerCode ?? ""),
+    accountId: String(a.externalAccountId ?? a.accountId ?? a.id),
+    balance: 0, // not available from API
+    marginUsed: 0,
+    status: a.status === "verified" ? "connected" : a.status === "blocked" ? "error" : "expired" as "connected" | "error" | "expired",
+  })), [accounts]);
+
+  const zebuAcc = useMemo(() => accounts.find((a: any) => String(a.broker ?? a.brokerCode ?? "").toUpperCase() === "ZEBU"), [accounts]);
+  const [fetchHoldings, { data: holdingsData }] = useLazyGetZebuHoldingsQuery();
+
+  useEffect(() => {
+    if (zebuAcc?.id) fetchHoldings({ tradingAccountId: zebuAcc.id });
+  }, [zebuAcc?.id]);
+
+  const holdingsTotalValue = useMemo(() => {
+    const h = holdingsData?.holdings ?? [];
+    return h.reduce((sum: number, item: any) => {
+      return sum + Number(item.upldprc ?? item.price ?? 0) * Number(item.holdqty ?? item.quantity ?? 0);
+    }, 0);
+  }, [holdingsData]);
+
+  const positions: Position[] = [];
+
+  const strategies: Strategy[] = []; // No strategies endpoint yet
+
+  const [strategiesState, setStrategiesState] = useState<Strategy[]>(strategies);
+
+  const pnlSeries = useMemo(() => {
+    if (!trades.length) return { today: [], week: [], month: [] };
+    const sorted = [...trades].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let cumulative = 0;
+    const todayPoints = sorted.slice(-10).map((t) => {
+      cumulative += t.pnl;
+      return { timeLabel: new Date(t.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }), value: Math.round(cumulative) };
+    });
+    return { today: todayPoints, week: todayPoints, month: todayPoints };
+  }, [trades]);
+
   const filteredTrades = useMemo(
-    () => mockTrades.filter((t) => withinTimeframe(t.timestamp, timeframe)),
-    [timeframe]
+    () => trades.filter((t) => withinTimeframe(t.timestamp, timeframe)),
+    [trades, timeframe]
   );
 
   const totalPnl = useMemo(
@@ -298,9 +217,9 @@ const UserDashboard: React.FC = () => {
     return Math.round((wins / filteredTrades.length) * 100);
   }, [filteredTrades]);
 
-  const runningPositions = mockPositions.length;
+  const runningPositions = positions.length;
 
-  const activeStrategiesCount = strategies.filter(
+  const activeStrategiesCount = strategiesState.filter(
     (s) => s.status === "active"
   ).length;
 
@@ -310,7 +229,7 @@ const UserDashboard: React.FC = () => {
   }, [filteredTrades, showOnlyProfitable]);
 
   const handleStrategyToggle = (id: string) => {
-    setStrategies((prev) =>
+    setStrategiesState((prev) =>
       prev.map((s) =>
         s.id === id
           ? {
@@ -322,10 +241,11 @@ const UserDashboard: React.FC = () => {
     );
   };
 
-  const pnlSeries = mockPnlSeries[timeframe];
-
   return (
     <div className="min-h-screen px-6   bg-slate-950 text-slate-100 px-4 py-6 sm:px-6 lg:px-8">
+      {(tradesLoading || accountsLoading) && (
+        <div className="text-xs text-slate-400 mb-4">Loading dashboard data…</div>
+      )}
       {/* Top Bar */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
         <div>
@@ -403,7 +323,7 @@ const UserDashboard: React.FC = () => {
             From {filteredTrades.length} closed trades
           </p>
           <div className="mt-4">
-            <PnlSparkline data={pnlSeries} />
+            <PnlSparkline data={pnlSeries[timeframe]} />
           </div>
         </div>
 
@@ -453,7 +373,7 @@ const UserDashboard: React.FC = () => {
             <span className="rounded-full bg-slate-800 px-2 py-1">
               Brokers:{" "}
               <span className="text-emerald-400 font-medium">
-                {mockAccounts.length}
+                {brokerAccounts.length}
               </span>
             </span>
           </div>
@@ -468,7 +388,7 @@ const UserDashboard: React.FC = () => {
             {runningPositions}
           </p>
           <ul className="mt-3 space-y-1.5 text-xs text-slate-300">
-            {mockPositions.map((p) => (
+            {positions.map((p) => (
               <li key={p.id} className="flex justify-between">
                 <span>
                   {p.symbol}{" "}
@@ -516,12 +436,12 @@ const UserDashboard: React.FC = () => {
                 {activeStrategiesCount}
               </span>
               {" / "}
-              {strategies.length}
+              {strategiesState.length}
             </div>
           </div>
 
           <div className="space-y-3">
-            {strategies.map((s) => (
+            {strategiesState.map((s) => (
               <div
                 key={s.id}
                 className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3"
@@ -577,6 +497,9 @@ const UserDashboard: React.FC = () => {
                 </div>
               </div>
             ))}
+            {strategiesState.length === 0 && (
+              <p className="text-xs text-slate-500">No strategies configured yet.</p>
+            )}
           </div>
         </div>
 
@@ -597,7 +520,7 @@ const UserDashboard: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {mockAccounts.map((a) => (
+            {brokerAccounts.map((a) => (
               <div
                 key={a.id}
                 className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3"
@@ -629,9 +552,11 @@ const UserDashboard: React.FC = () => {
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px] text-slate-300">
                   <span>
-                    Balance:{" "}
+                    {a.broker.toUpperCase() === "ZEBU" ? "Holdings: " : "Balance: "}
                     <span className="font-semibold text-slate-100">
-                      {formatCurrency(a.balance)}
+                      {a.broker.toUpperCase() === "ZEBU"
+                        ? `₹${holdingsTotalValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
+                        : formatCurrency(a.balance)}
                     </span>
                   </span>
                   <span>
@@ -643,6 +568,9 @@ const UserDashboard: React.FC = () => {
                 </div>
               </div>
             ))}
+            {brokerAccounts.length === 0 && (
+              <p className="text-xs text-slate-500">No broker accounts connected.</p>
+            )}
           </div>
         </div>
       </div>
@@ -660,7 +588,7 @@ const UserDashboard: React.FC = () => {
             </span>
           </div>
           <div className="space-y-3">
-            {mockPositions.map((p) => (
+            {positions.map((p) => (
               <div
                 key={p.id}
                 className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3"
@@ -711,7 +639,7 @@ const UserDashboard: React.FC = () => {
                 </div>
               </div>
             ))}
-            {mockPositions.length === 0 && (
+            {positions.length === 0 && (
               <p className="text-xs text-slate-500">
                 No open positions right now.
               </p>

@@ -1036,14 +1036,32 @@ import ForexWebhookDrawer from "./components/ForexWebhookDrawer";
 import ForexMT5SetupDrawer from "./components/ForexMT5SetupDrawer";
 import SlideOver from "./components/SlideOver";
 
-import { dummyForexPlans, dummyForexPlanStrategies } from "./forex.dummy";
 import {
   ForexPlanInstance,
+  ForexPlanStrategyDef,
   ForexPlanSignalSettings,
   ForexStrategySelections,
   ForexAccountRowLite,
 } from "./forex.types";
-import { useGetMyCurrentSubscriptionQuery } from "../../../services/profileSubscription.api";
+import { useGetMyCurrentSubscriptionQuery, SubscriptionPlan } from "../../../services/profileSubscription.api";
+
+/** Derive strategy definitions from plan metadata/featureFlags */
+function toForexStrategyDefs(planData: SubscriptionPlan | null, planId: string): ForexPlanStrategyDef[] {
+  if (!planData) return [];
+  const raw: any[] =
+    planData.metadata?.strategies ??
+    planData.featureFlags?.strategies ??
+    [];
+  if (!Array.isArray(raw) || !raw.length) return [];
+  return raw.map((s: any, i: number) => ({
+    id: String(s.id ?? `${planId}-strat-${i}`),
+    planId,
+    market: "FOREX" as const,
+    name: String(s.name ?? `Strategy ${i + 1}`),
+    description: String(s.description ?? ""),
+    tags: Array.isArray(s.tags) ? s.tags : [],
+  }));
+}
 
 export enum MarketType {
   FOREX = "FOREX",
@@ -1278,60 +1296,55 @@ function Menu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }
 }
 
 export default function ForexAccountsPage() {
-  /**
-   * ✅ subscription now expects:
-   * GET /subscription/current?market=FOREX
-   */
   const {
     data: subRes,
     isLoading: subLoading,
     isFetching: subFetching,
     refetch: refetchSub,
-  } = useGetMyCurrentSubscriptionQuery({ market: MarketType.FOREX } as any);
+  } = useGetMyCurrentSubscriptionQuery();
 
-  const webhookToken =
-    (subRes as any)?.data?.webhookToken ??
-    (subRes as any)?.data?.data?.webhookToken ??
-    (subRes as any)?.webhookToken ??
-    "";
+  // The API returns { message: string; data: UserSubscription | null }
+  const subscription = subRes?.data ?? null;
+  const plan = subscription?.plan ?? null;
+
+  const webhookToken = subscription?.webhookToken ?? "";
 
   const FOREX_TV_WEBHOOK_URL = `https://backend.globalalgotrading.com/tradingview/alerts?token=${encodeURIComponent(
     webhookToken
   )}`;
 
   /**
-   * ✅ plans come from subscription response (fallback to dummy)
-   * We keep a very tolerant mapping because backend shape may vary.
+   * Build a ForexPlanInstance from the real subscription + plan.
+   * Falls back to empty list (no dummy) so locked state is shown correctly.
    */
   const plans = useMemo<ForexPlanInstance[]>(() => {
-    const raw = (subRes as any)?.data ?? (subRes as any) ?? null;
+    if (!subscription) return [];
 
-    const list =
-      Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : raw && typeof raw === "object" ? [raw] : [];
+    const planId = String(subscription.id);
+    const planName = plan?.name ?? `Plan #${subscription.planId}`;
 
-    const mapped = list
-      .map((x: any) => {
-        const planId = String(
-          x?.planId ??
-            x?.plan_id ??
-            x?.subscriptionPlanId ??
-            x?.subscription_id ??
-            x?.plan?.id ??
-            x?.plan?.uuid ??
-            ""
-        ).trim();
+    const instance: ForexPlanInstance = {
+      planId,
+      planName,
+      endDate: subscription.endDate ?? null,
+      executionAllowed: subscription.executionEnabled,
+      limits: {
+        maxConnectedAccounts: plan?.maxConnectedAccounts ?? 0,
+        maxActiveStrategies: plan?.maxActiveStrategies ?? 0,
+        maxDailyTrades: plan?.maxDailyTrades ?? undefined,
+        maxLotPerTrade: plan?.maxLotPerTrade ? Number(plan.maxLotPerTrade) : undefined,
+      },
+    };
 
-        if (!planId) return null;
+    return [instance];
+  }, [subscription, plan]);
 
-        const planName = String(x?.plan?.name ?? x?.planName ?? x?.name ?? "Plan");
-        const limits = x?.plan?.limits ?? x?.limits ?? undefined;
-
-        return { planId, planName, limits } as ForexPlanInstance;
-      })
-      .filter(Boolean) as ForexPlanInstance[];
-
-    return mapped.length ? mapped : (dummyForexPlans as any);
-  }, [subRes]);
+  /** Strategy defs derived from real plan metadata/featureFlags */
+  const strategyDefs = useMemo<ForexPlanStrategyDef[]>(() => {
+    if (!plans.length) return [];
+    const p = plans[0];
+    return toForexStrategyDefs(plan, p.planId);
+  }, [plan, plans]);
 
   // ✅ selected plan (stored)
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() => getLS("fx.selectedPlanId.v1", ""));
@@ -2036,7 +2049,7 @@ export default function ForexAccountsPage() {
         open={openStrategies}
         onClose={() => setOpenStrategies(false)}
         plan={selectedPlan}
-        strategyDefs={dummyForexPlanStrategies}
+        strategyDefs={strategyDefs}
         planSignals={planSignals}
         setPlanSignals={setPlanSignals}
         selections={strategySelections}

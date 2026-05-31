@@ -9,28 +9,38 @@ import {
   IndianRupee,
   Clock,
 } from "lucide-react";
+import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
+import { useListMyInvoicesQuery } from "../../services/billing.api";
 
 const SubscriptionDashboardPage: React.FC = () => {
-  // mock data
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const { data: invoiceData, isLoading: invoicesLoading } = useListMyInvoicesQuery({ page: 1, limit: 5 });
+
+  const sub = subData?.data ?? null;
+  const plan = sub ? (sub as any).plan : null;
+
+  const invoices = (invoiceData?.data ?? []).map((inv: any) => ({
+    id: String(inv.id),
+    amount: Math.round(inv.amountCents / 100),
+    date: new Date(inv.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }),
+    status: inv.status === "paid" ? "Paid" : inv.status === "failed" ? "Failed" : "Pending",
+  }));
+
   const subscription = {
-    status: "Active",
-    plan: "Profit Sharing (20%)",
-    nextSettlement: "01 Feb 2025",
-    startDate: "12 Jan 2025",
-    totalProfit: 42800,
-    userShare: 8560, // 20%
-    invoices: [
-      { id: "INV-001", amount: 6200, date: "01 Jan 2025", status: "Paid" },
-      { id: "INV-002", amount: 7800, date: "01 Dec 2024", status: "Paid" },
-    ],
-    settlements: [
-      { month: "January 2025", profit: 21400, userShare: 4280, status: "Settled" },
-      { month: "December 2024", profit: 26000, userShare: 5200, status: "Settled" },
-    ],
+    status: sub?.statusV2 ?? sub?.status ?? "—",
+    plan: plan?.name ?? "—",
+    nextSettlement: sub?.endDate ? new Date(sub.endDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+    startDate: sub?.startDate ? new Date(sub.startDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—",
+    totalProfit: 0, // no PnL endpoint yet
+    userShare: 0,
+    invoices,
+    settlements: invoices, // same data for now
   };
 
   return (
     <div className="min-h-screen px-6 pt-16  md:pt-28 p-6 bg-slate-950 text-slate-100 space-y-8">
+      {(subLoading || invoicesLoading) && <p className="text-xs text-slate-400">Loading…</p>}
+      {!sub && !subLoading && <p className="text-sm text-slate-400">No active subscription found.</p>}
       {/* Header */}
       <div>
         <h1 className="text-2xl font-semibold">Subscription Dashboard</h1>

@@ -1,11 +1,12 @@
 import React, { useMemo } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "react-toastify";
- 
+
 import { CryptoPlanInstance, CryptoPlanSignalSettings } from "../crypto.types";
 import { ApiAccountItem } from "../../ApiAccountsManager";
 import ToggleRow from "../../forex/components/ToggleRow";
 import SlideOver from "../../forex/components/SlideOver";
+import { useSaveWebhookSettingsMutation, useGetMyCurrentSubscriptionQuery } from "../../../../services/profileSubscription.api";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -57,6 +58,10 @@ export default function CryptoWebhookDrawer({
 
   const webhookEnabled = !!signals?.webhookEnabled;
 
+  const [saveWebhook, { isLoading: saving }] = useSaveWebhookSettingsMutation();
+  const { data: subData } = useGetMyCurrentSubscriptionQuery();
+  const realToken = (subData?.data as any)?.webhookToken ?? null;
+
   const url = useMemo(() => {
     return `${safeOrigin()}/api/webhooks/tradingview/crypto`;
   }, []);
@@ -74,6 +79,8 @@ export default function CryptoWebhookDrawer({
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planId]);
+
+  const displayToken = realToken ?? signals?.webhookSecret ?? "";
 
   const defaultAccountId = signals?.webhookDefaultAccountId ?? (accounts[0]?.id ? String(accounts[0].id) : "");
 
@@ -145,8 +152,8 @@ export default function CryptoWebhookDrawer({
               <div className="text-sm font-semibold text-slate-100">Secret</div>
               <div className="text-xs text-slate-400 mt-1">Validate this secret on backend.</div>
               <div className="mt-3 flex gap-2">
-                <input className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" readOnly value={secret || ""} />
-                <button type="button" className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-slate-200" onClick={() => copyText(secret || "")}>
+                <input className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-100" readOnly value={displayToken} />
+                <button type="button" className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-slate-200" onClick={() => copyText(displayToken)}>
                   <Copy size={16} />
                 </button>
               </div>
@@ -188,10 +195,18 @@ export default function CryptoWebhookDrawer({
 
           <button
             type="button"
-            onClick={() => toast.success("Saved (dummy)")}
-            className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold"
+            disabled={saving}
+            onClick={async () => {
+              try {
+                await saveWebhook({ isWebhookEnabled: webhookEnabled }).unwrap();
+                toast.success("Webhook settings saved.");
+              } catch {
+                toast.error("Failed to save webhook settings.");
+              }
+            }}
+            className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       )}

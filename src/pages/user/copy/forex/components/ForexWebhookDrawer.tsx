@@ -9,6 +9,7 @@ import Switch from "./Switch";
 import { btn, clsx } from "../ui";
 import { ForexCopyPlanInstance, ForexPlanSignalSettings } from "../forex.types";
 import { webhookPayloadExample } from "../forex.dummy";
+import { useSaveWebhookSettingsMutation, useGetMyCurrentSubscriptionQuery } from "../../../../../services/profileSubscription.api";
 
 export default function ForexWebhookDrawer({
   open,
@@ -24,6 +25,12 @@ export default function ForexWebhookDrawer({
   setPlanSignals: (v: ForexPlanSignalSettings) => void;
 }) {
   const enabled = plan ? !!planSignals[plan.planId]?.webhookEnabled : false;
+
+  const [saveWebhook, { isLoading: saving }] = useSaveWebhookSettingsMutation();
+  const { data: subData } = useGetMyCurrentSubscriptionQuery();
+  const realToken = (subData?.data as any)?.webhookToken ?? null;
+
+  const displayToken = realToken ?? plan?.webhook?.secretMasked ?? "";
 
   const payload = useMemo(() => (plan ? webhookPayloadExample(plan.planId) : null), [plan]);
 
@@ -76,7 +83,7 @@ export default function ForexWebhookDrawer({
 
           <div className="mt-3 text-xs text-slate-600 flex items-center gap-2">
             <ShieldCheck size={14} className="text-emerald-600" />
-            Secret: <span className="font-semibold">{plan.webhook.secretMasked}</span>
+            Secret: <span className="font-semibold">{displayToken || plan.webhook.secretMasked}</span>
             <span className="text-slate-400">(masked)</span>
           </div>
         </div>
@@ -102,6 +109,22 @@ export default function ForexWebhookDrawer({
             </button>
           </div>
         </div>
+
+        <button
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            try {
+              await saveWebhook({ isWebhookEnabled: enabled }).unwrap();
+              toast.success("Webhook settings saved.");
+            } catch {
+              toast.error("Failed to save webhook settings.");
+            }
+          }}
+          className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
 
         <div className="text-[11px] text-slate-500">
           Tip: Keep webhook enabled **only for the plan you actually use**.

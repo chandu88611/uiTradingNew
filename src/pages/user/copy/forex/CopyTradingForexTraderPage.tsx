@@ -11,7 +11,12 @@ import {
   ForexStrategySelections,
 } from "./forex.types";
 
-import { dummyForexPlans, dummyForexPlanStrategies, dummyForexSafetyDefaults } from "./forex.dummy";
+import {
+  useGetMyCurrentSubscriptionQuery,
+  UserSubscription,
+  SubscriptionPlan,
+} from "../../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../../services/tradingAccounts.api";
 
 import ForexCopyAccountsPanel from "./components/ForexCopyAccountsPanel";
 import ForexPlanBar from "./components/ForexPlanBar";
@@ -38,9 +43,58 @@ function ensureSignalDefaults(planId: string, map: ForexPlanSignalSettings): For
   return { ...map, [planId]: { strategiesEnabled: true, webhookEnabled: false } };
 }
 
+function toForexCopyPlan(sub: UserSubscription, plan: SubscriptionPlan | null | undefined): ForexCopyPlanInstance {
+  return {
+    planId: String(sub.id),
+    planName: plan?.name ?? `Plan #${sub.planId}`,
+    tier: "PRO" as "FREE" | "PRO" | "ELITE",
+    executionAllowed: sub.executionEnabled,
+    limits: {
+      maxConnectedAccounts: plan?.maxConnectedAccounts ?? 0,
+      maxActiveStrategies: plan?.maxActiveStrategies ?? 0,
+      maxDailyTrades: plan?.maxDailyTrades ?? 0,
+      maxLotPerTrade: plan?.maxLotPerTrade ? Number(plan.maxLotPerTrade) : 0,
+    },
+    webhook: {
+      endpointUrl: sub.webhookUrl ?? "",
+      secretMasked: sub.webhookToken ? "****" : "",
+    },
+  };
+}
+
+function toForexStrategyDefs(plan: SubscriptionPlan | null | undefined, planId: string): any[] {
+  const raw: any[] = plan?.metadata?.strategies ?? plan?.featureFlags?.strategies ?? [];
+  if (!Array.isArray(raw) || !raw.length) return [];
+  return raw.map((s: any, i: number) => ({
+    id: String(s.id ?? `${planId}-strat-${i}`),
+    planId,
+    market: "FOREX",
+    name: String(s.name ?? `Strategy ${i + 1}`),
+    description: String(s.description ?? ""),
+    tags: Array.isArray(s.tags) ? s.tags : [],
+  }));
+}
+
 export default function CopyTradingForexTraderPage() {
-  const plans = useMemo(() => dummyForexPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const sub = subData?.data ?? null;
+  const planRaw = sub ? (sub as any).plan as SubscriptionPlan | null : null;
+
+  const { data: accounts = [] } = useListMyTradingAccountsQuery();
+
+  const plans = useMemo(() => {
+    if (!sub || !planRaw || planRaw.category !== "FOREX") return [];
+    return [toForexCopyPlan(sub as UserSubscription, planRaw)];
+  }, [sub, planRaw]);
+
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() => getLS("copy.fx.trader.selectedPlanId.v1", plans[0]?.planId ?? ""));
+
+  // keep selectedPlanId in sync when plans load
+  useEffect(() => {
+    if (plans.length && !selectedPlanId) {
+      setSelectedPlanId(plans[0].planId);
+    }
+  }, [plans, selectedPlanId]);
 
   const selectedPlan: ForexCopyPlanInstance | null = useMemo(
     () => plans.find((p) => p.planId === selectedPlanId) ?? null,
@@ -49,33 +103,25 @@ export default function CopyTradingForexTraderPage() {
 
   useEffect(() => setLS("copy.fx.trader.selectedPlanId.v1", selectedPlanId), [selectedPlanId]);
 
-  // accounts (dummy, local)
-  const [accounts, setAccounts] = useState<ForexCopyAccount[]>(() =>
-    getLS("copy.fx.trader.accounts.v1", [
-      {
-        id: 4108,
-        type: "MT5",
-        label: "Main MT5",
-        enabled: true,
-        isMaster: true,
-        userId: "12345678",
-        createdAt: "2026-01-10T10:00:00.000Z",
-        updatedAt: "2026-01-20T12:30:00.000Z",
-      },
-      {
-        id: 3748,
-        type: "CTRADER",
-        label: "cTrader 1",
-        enabled: true,
-        isMaster: false,
-        userId: "10001234",
-        hasToken: true,
-        createdAt: "2025-12-18T19:07:00.000Z",
-        updatedAt: "2026-01-20T08:58:00.000Z",
-      },
-    ])
+  const strategyDefs = useMemo(() => toForexStrategyDefs(planRaw, selectedPlanId), [planRaw, selectedPlanId]);
+
+  // derived accounts from real trading accounts API
+  const forexAccounts: ForexCopyAccount[] = useMemo(
+    () =>
+      accounts
+        .filter((a: any) => ["MT5", "CT", "CTRADER"].includes(String(a.broker ?? "").toUpperCase()))
+        .map((a: any) => ({
+          id: a.id,
+          type: String(a.broker ?? "MT5") as any,
+          label: a.accountLabel ?? a.label ?? `Account ${a.id}`,
+          enabled: a.status === "verified",
+          isMaster: false,
+          userId: String(a.externalAccountId ?? a.id),
+          createdAt: a.createdAt ?? new Date().toISOString(),
+          updatedAt: a.updatedAt ?? new Date().toISOString(),
+        })),
+    [accounts]
   );
-  useEffect(() => setLS("copy.fx.trader.accounts.v1", accounts), [accounts]);
 
   // signals
   const [planSignals, setPlanSignals] = useState<ForexPlanSignalSettings>(() => getLS("copy.fx.trader.planSignals.v1", {}));
@@ -95,7 +141,9 @@ export default function CopyTradingForexTraderPage() {
   }, [selectedPlan, selections]);
 
   // safety (per plan)
-  const [safety, setSafety] = useState<ForexSafetySettings>(() => getLS("copy.fx.trader.safety.v1", dummyForexSafetyDefaults));
+  const [safety, setSafety] = useState<ForexSafetySettings>(() =>
+    getLS("copy.fx.trader.safety.v1", {} as ForexSafetySettings)
+  );
   useEffect(() => setLS("copy.fx.trader.safety.v1", safety), [safety]);
 
   // drawers
@@ -121,12 +169,12 @@ export default function CopyTradingForexTraderPage() {
         </p>
       </div>
 
-      {/* ✅ ACCOUNTS FIRST (top priority) */}
+      {/* ACCOUNTS FIRST (top priority) */}
       <ForexCopyAccountsPanel
         roleMode="TRADER"
         maxAccounts={maxAccounts || 10}
-        value={accounts}
-        onChange={setAccounts}
+        value={forexAccounts}
+        onChange={() => {}}
       />
 
       {/* Plan bar (compact) */}
@@ -135,7 +183,7 @@ export default function CopyTradingForexTraderPage() {
           plans={plans}
           selectedPlanId={selectedPlanId}
           onChangePlan={setSelectedPlanId}
-          accountsUsed={accounts.length}
+          accountsUsed={forexAccounts.length}
           enabledStrategyCount={enabledStrategyCount}
           planSignals={planSignals}
           onOpenWebhook={() => setOpenWebhook(true)}
@@ -157,7 +205,7 @@ export default function CopyTradingForexTraderPage() {
         open={openStrategies}
         onClose={() => setOpenStrategies(false)}
         plan={selectedPlan}
-        strategyDefs={dummyForexPlanStrategies}
+        strategyDefs={strategyDefs}
         planSignals={planSignals}
         setPlanSignals={setPlanSignals}
         selections={selections}

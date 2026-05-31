@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   Calendar,
@@ -8,6 +8,7 @@ import {
   Filter,
   BarChart3,
 } from "lucide-react";
+import { useGetTradesHistoryQuery } from "../../services/trades.api";
 
 type StatementRow = {
   id: string;
@@ -24,39 +25,27 @@ type StatementRow = {
   exchangeFee: number;
 };
 
-const mockData: StatementRow[] = [
-  {
-    id: "1",
-    date: "2025-02-04",
-    symbol: "BANKNIFTY24FEBFUT",
-    qty: 25,
-    buy: 49200,
-    sell: 49320,
-    turnover: 985500,
-    pnl: 3000,
-    brokerage: 40,
-    stt: 18,
-    gst: 7.2,
-    exchangeFee: 4,
-  },
-  {
-    id: "2",
-    date: "2025-02-04",
-    symbol: "NIFTY24FEBFUT",
-    qty: 50,
-    buy: 22150,
-    sell: 22110,
-    turnover: 1107500,
-    pnl: -2000,
-    brokerage: 40,
-    stt: 15,
-    gst: 7.2,
-    exchangeFee: 4,
-  },
-];
-
 const BrokerStatementPage: React.FC = () => {
-  const [data] = useState(mockData);
+  const { data: historyData, isLoading } = useGetTradesHistoryQuery({ start: 0, count: 50 });
+
+  const data: StatementRow[] = useMemo(() => {
+    const arr = historyData?.data ?? historyData;
+    if (!Array.isArray(arr)) return [];
+    return arr.map((t: any) => ({
+      id: String(t.id ?? ""),
+      date: (t.signalTime ?? t.createdAt ?? "").slice(0, 10),
+      symbol: String(t.symbol ?? ""),
+      qty: Number(t.volume ?? t.qty ?? 0),
+      buy: String(t.action ?? t.side ?? "").toLowerCase().includes("sell") ? 0 : Number(t.price ?? 0),
+      sell: String(t.action ?? t.side ?? "").toLowerCase().includes("sell") ? Number(t.price ?? 0) : 0,
+      turnover: Number(t.price ?? 0) * Number(t.volume ?? t.qty ?? 0),
+      pnl: Number(t.pnl ?? 0),
+      brokerage: 0,
+      stt: 0,
+      gst: 0,
+      exchangeFee: 0,
+    }));
+  }, [historyData]);
 
   const totals = data.reduce(
     (acc, row) => {
@@ -208,6 +197,16 @@ const BrokerStatementPage: React.FC = () => {
           </thead>
 
           <tbody>
+            {isLoading && (
+              <tr>
+                <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">Loading trades...</td>
+              </tr>
+            )}
+            {!isLoading && data.length === 0 && (
+              <tr>
+                <td colSpan={8} className="p-6 text-center text-slate-400 text-sm">No trade records found.</td>
+              </tr>
+            )}
             {data.map((row) => {
               const totalCharges = row.brokerage + row.stt + row.gst + row.exchangeFee;
 

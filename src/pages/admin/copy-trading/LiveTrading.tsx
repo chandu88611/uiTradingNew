@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Play,
   Pause,
@@ -13,9 +13,10 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useGetAllTradesQuery } from "../../../services/trades.api";
 
 /* ------------------------------
-   MOCK TYPES
+   TYPES
 ------------------------------ */
 type LiveTrade = {
   id: string;
@@ -42,38 +43,34 @@ const LiveTradingPage: React.FC = () => {
   const [isLive, setIsLive] = useState(false);
   const [masterAccount, setMasterAccount] = useState("Master-001");
   const [strategy, setStrategy] = useState("Breakout Booster");
-  const [liveTrades, setLiveTrades] = useState<LiveTrade[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [sessionPnl, setSessionPnl] = useState(0);
+  const [sessionPnl] = useState(0);
 
-  // Simulate incoming trades
-  useEffect(() => {
-    if (!isLive) return;
+  const { data: tradesData, isLoading, isFetching, refetch } = useGetAllTradesQuery(
+    { start: 0, count: 50 },
+    { pollingInterval: 5000 }
+  );
 
-    const interval = setInterval(() => {
-      // mock trade
-      const newTrade: LiveTrade = {
-        id: Math.random().toString(36).substring(2, 10),
-        symbol: ["NIFTY", "BANKNIFTY", "RELIANCE", "HDFCBANK", "TATASTEEL"][
-          Math.floor(Math.random() * 5)
-        ],
-        side: Math.random() > 0.5 ? "BUY" : "SELL",
-        qty: Math.floor(Math.random() * 10) + 1,
-        price: parseFloat((Math.random() * 50 + 350).toFixed(2)),
-        time: new Date().toLocaleTimeString(),
-        status: "executed",
-        fanoutCount: Math.floor(Math.random() * 20) + 5,
-      };
+  const liveTrades: LiveTrade[] = useMemo(() => {
+    const arr = tradesData?.data ?? tradesData;
+    if (!Array.isArray(arr)) return [];
+    return arr.map((t: any) => ({
+      id: String(t.id ?? ""),
+      symbol: String(t.symbol ?? ""),
+      side: String(t.action ?? t.side ?? "BUY").toUpperCase().includes("SELL") ? "SELL" as const : "BUY" as const,
+      qty: Number(t.volume ?? t.qty ?? 0),
+      price: Number(t.price ?? 0),
+      time: t.signalTime ?? t.createdAt ?? new Date().toISOString(),
+      status: (() => {
+        const s = String(t.status ?? "").toLowerCase();
+        if (s.includes("complet") || s.includes("done")) return "executed" as const;
+        if (s.includes("reject") || s.includes("fail")) return "failed" as const;
+        return "pending" as const;
+      })(),
+      fanoutCount: 0,
+    }));
+  }, [tradesData]);
 
-      setLiveTrades((prev) => [newTrade, ...prev]);
-      setLogs((prev) => [`Executed ${newTrade.symbol} (${newTrade.side})`, ...prev]);
-      const pnlChange = (Math.random() * 200 - 50).toFixed(2);
-      setSessionPnl((prev) => prev + parseFloat(pnlChange));
-    }, 2500);
-
-    return () => clearInterval(interval);
-  }, [isLive]);
+  const positions: Position[] = [];
 
   return (
     <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100 p-6 space-y-6">
@@ -90,23 +87,26 @@ const LiveTradingPage: React.FC = () => {
         <div className="flex gap-3">
           <button
             onClick={() => setIsLive(!isLive)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg transition 
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg transition
                         ${isLive ? "bg-rose-500 text-white" : "bg-emerald-500 text-slate-900"}`}
           >
             {isLive ? <Pause size={18} /> : <Play size={18} />}
             {isLive ? "Stop Trading" : "Start Trading"}
           </button>
 
-          <button className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700">
-            <RefreshCw size={18} />
-            Reset Session
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700"
+          >
+            <RefreshCw size={18} className={isFetching ? "animate-spin" : ""} />
+            {isFetching ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </div>
 
       {/* MASTER CONTROL PANEL */}
       <div className="grid lg:grid-cols-3 gap-6">
-        
+
         {/* MASTER SETTINGS */}
         <div className="bg-slate-900/60 p-6 border border-slate-800 rounded-xl space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -183,6 +183,12 @@ const LiveTradingPage: React.FC = () => {
       <div className="bg-slate-900/60 p-6 border border-slate-800 rounded-xl">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Activity size={18} /> Live Trades
+          {isFetching && (
+            <span className="ml-2 text-xs text-slate-400 flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse inline-block" />
+              Polling
+            </span>
+          )}
         </h2>
 
         <div className="overflow-x-auto">
@@ -200,6 +206,22 @@ const LiveTradingPage: React.FC = () => {
             </thead>
 
             <tbody>
+              {isLoading && (
+                <tr>
+                  <td colSpan={7} className="p-10 text-center">
+                    <div className="flex justify-center">
+                      <div className="h-6 w-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!isLoading && liveTrades.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-10 text-center text-slate-400 text-sm">
+                    No live trades found
+                  </td>
+                </tr>
+              )}
               <AnimatePresence>
                 {liveTrades.map((t) => (
                   <motion.tr
@@ -228,6 +250,8 @@ const LiveTradingPage: React.FC = () => {
                     <td className="p-3">
                       {t.status === "executed" ? (
                         <span className="text-emerald-400">Executed</span>
+                      ) : t.status === "failed" ? (
+                        <span className="text-rose-400">Failed</span>
                       ) : (
                         <span className="text-yellow-400">Pending</span>
                       )}
@@ -249,9 +273,12 @@ const LiveTradingPage: React.FC = () => {
         </h2>
 
         <div className="h-48 overflow-y-auto text-sm text-slate-300 space-y-2">
-          {logs.map((l, i) => (
-            <p key={i}>• {l}</p>
+          {liveTrades.slice(0, 20).map((t, i) => (
+            <p key={i}>• {t.status === "executed" ? "Executed" : t.status === "failed" ? "Failed" : "Pending"} {t.symbol} ({t.side})</p>
           ))}
+          {liveTrades.length === 0 && !isLoading && (
+            <p className="text-slate-500">No log entries yet.</p>
+          )}
         </div>
       </div>
     </div>

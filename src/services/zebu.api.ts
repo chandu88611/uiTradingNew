@@ -50,8 +50,36 @@ export const zebuApi = baseApi.injectEndpoints({
         return { holdings: Array.isArray(holdings) ? holdings : [], raw };
       },
     }),
+    getZebuFunds: builder.query<{
+      availableCash: number;
+      marginUsed: number;
+      collateral: number;
+      totalFunds: number;
+    }, { tradingAccountId: number }>({
+      query: ({ tradingAccountId }) => ({
+        url: "/zebu/funds",
+        method: "GET",
+        params: { tradingAccountId },
+      }),
+      transformResponse: (res: any) => {
+        const d = res?.data ?? res;
+        return {
+          availableCash: Number(d?.availableCash ?? 0),
+          marginUsed: Number(d?.marginUsed ?? 0),
+          collateral: Number(d?.collateral ?? 0),
+          totalFunds: Number(d?.totalFunds ?? 0),
+        };
+      },
+    }),
   }),
   overrideExisting: true,
 });
 
-export const { useGetZebuPositionsQuery, useLazyGetZebuPositionsQuery, useGetZebuHoldingsQuery, useLazyGetZebuHoldingsQuery } = zebuApi;
+export const {
+  useGetZebuPositionsQuery,
+  useLazyGetZebuPositionsQuery,
+  useGetZebuHoldingsQuery,
+  useLazyGetZebuHoldingsQuery,
+  useGetZebuFundsQuery,
+  useLazyGetZebuFundsQuery,
+} = zebuApi;

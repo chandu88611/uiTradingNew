@@ -10,6 +10,50 @@ import {
 } from "lucide-react";
 import { useGetTradesHistoryQuery } from "../../services/trades.api";
 
+/**
+ * Standard SEBI/NSE fee calculation (discount broker model — ₹20 flat or 0.03% lower)
+ */
+function calcFees(symbol: string, exchange: string, action: string, qty: number, price: number) {
+  const turnover = qty * price;
+  if (turnover <= 0) return { brokerage: 0, stt: 0, exchangeFee: 0, gst: 0 };
+
+  const sym = symbol.toUpperCase();
+  const isSell = action.toUpperCase().includes("SELL") || action.toUpperCase().includes("SHORT");
+  const isFutures = sym.includes("FUT");
+  const isOptions = sym.includes("CE") || sym.includes("PE");
+  const isMcx = exchange.toUpperCase() === "MCX";
+  const isDelivery = !isFutures && !isOptions && !isMcx &&
+    !["NSE_INTRADAY", "BSE_INTRADAY", "MIS", "I"].includes(exchange.toUpperCase());
+
+  // Brokerage: ₹20 flat or 0.03% whichever is lower
+  const brokerage = Math.min(20, turnover * 0.0003);
+
+  // STT (Securities Transaction Tax) — charged on sell side for most segments
+  let stt = 0;
+  if (isDelivery) stt = turnover * 0.001;              // 0.1% both buy+sell (add for sell)
+  else if (isFutures && isSell) stt = turnover * 0.0001;      // 0.01% sell side
+  else if (isOptions && isSell) stt = price * qty * 0.0005;   // 0.05% on premium (sell)
+  else if (isSell && !isDelivery) stt = turnover * 0.00025;   // 0.025% intraday sell
+
+  // Exchange transaction charges (NSE 0.00345%, MCX 0.0026%)
+  const exchRate = isMcx ? 0.000026 : 0.0000345;
+  const exchangeFee = turnover * exchRate;
+
+  // SEBI charges ₹10/crore
+  const sebi = turnover * 0.0000001;
+
+  // GST 18% on (brokerage + exchange charges + SEBI)
+  const gst = (brokerage + exchangeFee + sebi) * 0.18;
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    brokerage: round2(brokerage),
+    stt: round2(stt),
+    exchangeFee: round2(exchangeFee + sebi),
+    gst: round2(gst),
+  };
+}
+
 type StatementRow = {
   id: string;
   date: string;
@@ -40,10 +84,13 @@ const BrokerStatementPage: React.FC = () => {
       sell: String(t.action ?? t.side ?? "").toLowerCase().includes("sell") ? Number(t.price ?? 0) : 0,
       turnover: Number(t.price ?? 0) * Number(t.volume ?? t.qty ?? 0),
       pnl: Number(t.pnl ?? 0),
-      brokerage: 0,
-      stt: 0,
-      gst: 0,
-      exchangeFee: 0,
+      ...calcFees(
+        String(t.symbol ?? ""),
+        String(t.exchange ?? "NSE"),
+        String(t.action ?? t.side ?? "BUY"),
+        Number(t.volume ?? t.qty ?? 0),
+        Number(t.price ?? 0),
+      ),
     }));
   }, [historyData]);
 

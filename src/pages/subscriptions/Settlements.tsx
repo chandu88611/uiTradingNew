@@ -8,33 +8,7 @@ import {
   ChevronRight,
   IndianRupee,
 } from "lucide-react";
-
-const mockSettlements = [
-  {
-    month: "January 2025",
-    date: "01 Feb 2025",
-    profit: 21400,
-    userShare: 4280,
-    masterShare: 17120,
-    status: "Settled",
-  },
-  {
-    month: "December 2024",
-    date: "01 Jan 2025",
-    profit: 26000,
-    userShare: 5200,
-    masterShare: 20800,
-    status: "Settled",
-  },
-  {
-    month: "November 2024",
-    date: "01 Dec 2024",
-    profit: 18000,
-    userShare: 3600,
-    masterShare: 14400,
-    status: "Settled",
-  },
-];
+import { useListMyInvoicesQuery } from "../../services/billing.api";
 
 const statusColors = {
   Settled: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40",
@@ -47,16 +21,42 @@ const SubscriptionSettlementsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const itemsPerPage = 6;
 
+  const { data: invData, isLoading } = useListMyInvoicesQuery({
+    page,
+    limit: itemsPerPage,
+  });
+  const rawInvoices = (invData as any)?.data ?? [];
+
+  const settlements = useMemo(
+    () =>
+      rawInvoices.map((inv: any) => ({
+        month: new Date(inv.createdAt).toLocaleString("en-IN", {
+          month: "long",
+          year: "numeric",
+        }),
+        date: new Date(inv.createdAt).toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        }),
+        profit: Math.round(Number(inv.amountCents ?? 0) / 100),
+        userShare: Math.round(Number(inv.amountCents ?? 0) / 100),
+        masterShare: 0,
+        status:
+          inv.status === "paid"
+            ? "Settled"
+            : inv.status === "failed"
+            ? "Failed"
+            : "Pending",
+      })),
+    [rawInvoices]
+  );
+
   const filtered = useMemo(() => {
-    return mockSettlements.filter((s) =>
+    return settlements.filter((s: any) =>
       s.month.toLowerCase().includes(search.toLowerCase())
     );
-  }, [search]);
-
-  const paginated = useMemo(() => {
-    const start = (page - 1) * itemsPerPage;
-    return filtered.slice(start, start + itemsPerPage);
-  }, [filtered, page]);
+  }, [settlements, search]);
 
   return (
     <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100 p-6 space-y-8">
@@ -106,7 +106,24 @@ const SubscriptionSettlementsPage: React.FC = () => {
           </thead>
 
           <tbody>
-            {paginated.map((s, idx) => (
+            {isLoading && (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-slate-400">
+                  Loading settlements…
+                </td>
+              </tr>
+            )}
+
+            {!isLoading && filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-6 text-center text-slate-400">
+                  No settlements found.
+                </td>
+              </tr>
+            )}
+
+            {!isLoading &&
+              filtered.map((s: any, idx: number) => (
               <motion.tr
                 key={idx}
                 initial={{ opacity: 0, y: 6 }}
@@ -136,7 +153,9 @@ const SubscriptionSettlementsPage: React.FC = () => {
 
                 <td className="p-3">
                   <span
-                    className={`px-2 py-1 text-xs rounded-lg border  `}
+                    className={`px-2 py-1 text-xs rounded-lg border ${
+                      statusColors[s.status as keyof typeof statusColors] ?? ""
+                    }`}
                   >
                     {s.status}
                   </span>
@@ -160,7 +179,7 @@ const SubscriptionSettlementsPage: React.FC = () => {
         <span className="text-slate-400">Page {page}</span>
 
         <button
-          disabled={paginated.length < itemsPerPage}
+          disabled={rawInvoices.length < itemsPerPage}
           onClick={() => setPage((p) => p + 1)}
           className="p-2 rounded-lg bg-slate-800 disabled:opacity-40 hover:bg-slate-700"
         >

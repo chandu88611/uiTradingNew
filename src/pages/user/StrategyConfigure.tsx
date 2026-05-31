@@ -1,4 +1,12 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import { toast } from "react-toastify";
+import { useListMyTradingAccountsQuery } from "../../services/tradingAccounts.api";
+import {
+  useGetStrategyDetailQuery,
+  useGetStrategyPerformanceQuery,
+  useSubscribeStrategyMutation,
+} from "../../services/strategy.api";
 
 type Broker = "zerodha" | "dhan" | "angel" | "mt5" | "other";
 
@@ -10,40 +18,24 @@ type Account = {
   balance?: number;
 };
 
-const mockAccounts: Account[] = [
-  {
-    id: "1",
-    label: "Zerodha – Main",
-    broker: "zerodha",
-    tokenPresent: true,
-    balance: 250000,
-  },
-  {
-    id: "2",
-    label: "Dhan – Swing",
-    broker: "dhan",
-    tokenPresent: false,
-    balance: 150000,
-  },
-];
+function normalizeBroker(code: string): Broker {
+  const c = String(code || "").toLowerCase();
+  if (c.includes("kite") || c.includes("zerodha")) return "zerodha";
+  if (c.includes("dhan")) return "dhan";
+  if (c.includes("angel")) return "angel";
+  if (c.includes("mt5") || c.includes("ct")) return "mt5";
+  return "other";
+}
 
 const UserStrategyDetailPage: React.FC = () => {
-  // this would come from API by id in real app
-  const strategy = {
-    id: "banknifty-mean-reversion",
-    name: "BankNifty Mean Reversion",
-    provider: "Tradebro Labs",
-    riskLevel: "Moderate",
-    since: "Jan 2024",
-    followers: 132,
-    roi30d: 14.2,
-    roiAll: 63.5,
-    winRate: 61,
-    maxDrawdown: 9.8,
-    avgTradesPerWeek: 18,
-    description:
-      "Intraday mean reversion system on BankNifty futures with strict time-based exits and fixed risk per trade.",
-  };
+  const { id: routeStrategyId } = useParams();
+  const strategyId = String(routeStrategyId ?? "").trim();
+  const {
+    data: strategyDetail,
+    isLoading: strategyLoading,
+    isError: strategyError,
+  } = useGetStrategyDetailQuery(strategyId, { skip: !strategyId });
+  const [subscribeStrategy, { isLoading: savingSettings }] = useSubscribeStrategyMutation();
 
   const [autoCopyEnabled, setAutoCopyEnabled] = useState(true);
 
@@ -59,40 +51,106 @@ const UserStrategyDetailPage: React.FC = () => {
   const [maxDrawdownStop, setMaxDrawdownStop] = useState("20");
   const [maxSlippage, setMaxSlippage] = useState("0.5");
 
-  // accounts (user can have many, but we only allow 1 active for this strategy)
-  const [accounts] = useState<Account[]>(mockAccounts);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
-    mockAccounts[0]?.id ?? null
+  // accounts (real) — user can have many, only 1 active for this strategy
+  const { data: apiAccounts = [], isLoading: accountsLoading } = useListMyTradingAccountsQuery();
+  const accounts: Account[] = useMemo(
+    () =>
+      (apiAccounts as any[]).map((a: any) => ({
+        id: String(a.id),
+        label: a.accountLabel ?? a.label ?? `Account ${a.id}`,
+        broker: normalizeBroker(a.broker ?? a.brokerCode ?? ""),
+        tokenPresent: a.status === "verified",
+        balance: undefined,
+      })),
+    [apiAccounts]
   );
+
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedAccountId && accounts.length) setSelectedAccountId(accounts[0].id);
+  }, [accounts, selectedAccountId]);
+
+  useEffect(() => {
+    const instanceAccountId = strategyDetail?.currentUserInstance?.tradingAccountId;
+    if (!instanceAccountId) return;
+    setSelectedAccountId(String(instanceAccountId));
+  }, [strategyDetail?.currentUserInstance?.tradingAccountId]);
+
+  useEffect(() => {
+    const copySettings = strategyDetail?.currentUserInstance?.frozenParams?.copySettings;
+    if (!copySettings) return;
+    if (copySettings.autoCopy !== undefined) setAutoCopyEnabled(Boolean(copySettings.autoCopy));
+    if (copySettings.allocationMode) setAllocationMode(copySettings.allocationMode);
+    if (copySettings.fixed !== undefined && copySettings.fixed !== null) setFixedAmount(String(copySettings.fixed));
+    if (copySettings.percent !== undefined && copySettings.percent !== null) setBalancePercent(String(copySettings.percent));
+    if (copySettings.multiplier !== undefined && copySettings.multiplier !== null) setMultiplier(String(copySettings.multiplier));
+    if (copySettings.maxRisk !== undefined && copySettings.maxRisk !== null) setMaxRiskPerTrade(String(copySettings.maxRisk));
+    if (copySettings.dailyLossLimit !== undefined && copySettings.dailyLossLimit !== null) setDailyLossLimit(String(copySettings.dailyLossLimit));
+    if (copySettings.maxDrawdownStop !== undefined && copySettings.maxDrawdownStop !== null) setMaxDrawdownStop(String(copySettings.maxDrawdownStop));
+    if (copySettings.maxSlippage !== undefined && copySettings.maxSlippage !== null) setMaxSlippage(String(copySettings.maxSlippage));
+  }, [strategyDetail?.currentUserInstance?.id]);
 
   const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
 
-  const handleSaveSettings = () => {
+  const { data: performance } = useGetStrategyPerformanceQuery(
+    { strategyId, accountId: selectedAccountId },
+    { skip: !strategyId || !selectedAccountId }
+  );
+
+  const strategy = useMemo(() => {
+    const sinceRaw = strategyDetail?.since ?? strategyDetail?.createdAt;
+    return {
+      id: strategyDetail?.id ?? strategyId,
+      name: strategyDetail?.name ?? "Strategy",
+      provider: strategyDetail?.provider ?? "Tradebro",
+      riskLevel: strategyDetail?.riskLevel ?? strategyDetail?.riskProfile ?? "—",
+      since: sinceRaw
+        ? new Date(sinceRaw).toLocaleDateString("en-IN", {
+            month: "short",
+            year: "numeric",
+          })
+        : "—",
+      followers: Number(strategyDetail?.followers ?? strategyDetail?.metrics?.followers ?? 0),
+      roi30d: Number(strategyDetail?.roi30d ?? 0),
+      roiAll: Number(strategyDetail?.roiAll ?? 0),
+      winRate: Number(strategyDetail?.winRate ?? 0),
+      maxDrawdown: Number(strategyDetail?.maxDrawdown ?? 0),
+      avgTradesPerWeek: Number(strategyDetail?.avgTradesPerWeek ?? 0),
+      description: strategyDetail?.description ?? "No description is available for this strategy yet.",
+    };
+  }, [strategyDetail, strategyId]);
+
+  const handleSaveSettings = async () => {
     if (!selectedAccountId) {
-      alert("Please select an account for this strategy.");
+      toast.error("Please select an account for this strategy.");
       return;
     }
     if (!selectedAccount?.tokenPresent) {
-      alert("Selected account does not have a valid token. Please connect token first.");
+      toast.error("Selected account does not have a valid token. Please connect token first.");
+      return;
+    }
+    if (!strategyId) {
+      toast.error("Missing strategy id.");
       return;
     }
 
-    // send to backend: POST /api/strategies/:id/subscribe
-    console.log("Saving subscription:", {
-      strategyId: strategy.id,
-      autoCopyEnabled,
-      allocationMode,
-      fixedAmount,
-      balancePercent,
-      multiplier,
-      maxRiskPerTrade,
-      dailyLossLimit,
-      maxDrawdownStop,
-      maxSlippage,
-      selectedAccountId,
-    });
+    await subscribeStrategy({
+      strategyId,
+      body: {
+        accountId: selectedAccountId,
+        autoCopy: autoCopyEnabled,
+        allocationMode,
+        fixed: allocationMode === "fixed" ? Number(fixedAmount) : null,
+        percent: allocationMode === "percent" ? Number(balancePercent) : null,
+        multiplier: allocationMode === "multiplier" ? Number(multiplier) : null,
+        maxRisk: Number(maxRiskPerTrade),
+        dailyLossLimit: Number(dailyLossLimit),
+        maxDrawdownStop: Number(maxDrawdownStop),
+        maxSlippage: Number(maxSlippage),
+      },
+    }).unwrap();
 
-    alert("Settings saved for selected account (mock).");
+    toast.success("Strategy settings saved.");
   };
 
   return (
@@ -105,12 +163,17 @@ const UserStrategyDetailPage: React.FC = () => {
               Strategies / <span className="text-slate-300">Details</span>
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-              {strategy.name}
+              {strategyLoading ? "Loading strategy..." : strategy.name}
             </h1>
             <p className="mt-1 text-xs text-slate-400">
               by <span className="text-slate-200">{strategy.provider}</span> •{" "}
               {strategy.riskLevel} risk • since {strategy.since}
             </p>
+            {strategyError ? (
+              <p className="mt-2 text-xs text-red-300">
+                Strategy details could not be loaded.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-3 text-xs">
@@ -172,7 +235,7 @@ const UserStrategyDetailPage: React.FC = () => {
               {/* Chart placeholder */}
               <div className="mt-4 rounded-2xl border border-slate-700/70 bg-slate-950/60 px-3 py-3">
                 <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span>Equity curve (mock)</span>
+                  <span>Equity curve</span>
                   <span className="rounded-full bg-slate-900 px-2 py-0.5">
                     6M view
                   </span>
@@ -315,6 +378,16 @@ const UserStrategyDetailPage: React.FC = () => {
 
               {/* account radio list */}
               <div className="mt-3 space-y-2 text-[11px]">
+                {accountsLoading && (
+                  <p className="rounded-2xl border border-slate-700/70 bg-slate-950/70 px-3 py-3 text-slate-400">
+                    Loading your accounts…
+                  </p>
+                )}
+                {!accountsLoading && accounts.length === 0 && (
+                  <p className="rounded-2xl border border-slate-700/70 bg-slate-950/70 px-3 py-3 text-slate-400">
+                    No trading accounts found. Connect a broker account first.
+                  </p>
+                )}
                 {accounts.map((acc) => {
                   const selected = acc.id === selectedAccountId;
                   return (
@@ -390,9 +463,9 @@ const UserStrategyDetailPage: React.FC = () => {
                   type="button"
                   onClick={handleSaveSettings}
                   className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-6 py-2 text-xs font-semibold text-black shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-600"
-                  disabled={!selectedAccount || !selectedAccount.tokenPresent}
+                  disabled={!selectedAccount || !selectedAccount.tokenPresent || savingSettings}
                 >
-                  Save & enable
+                  {savingSettings ? "Saving..." : "Save & enable"}
                 </button>
               </div>
             </div>
@@ -403,22 +476,23 @@ const UserStrategyDetailPage: React.FC = () => {
                 My performance with this strategy
               </p>
               <p className="mt-1 text-[11px] text-slate-400">
-                This will show P&L only for the selected account.
+                Per-strategy P&L for the selected account will appear here once
+                trades are executed.
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <MetricPill
                   label="Realized P&L (MTD)"
-                  value="+₹4,320"
-                  accent="positive"
+                  value={`₹${Number(performance?.realizedPnl ?? 0).toLocaleString("en-IN")}`}
+                  accent={Number(performance?.realizedPnl ?? 0) >= 0 ? "positive" : "negative"}
                 />
                 <MetricPill
                   label="Unrealized P&L"
-                  value="+₹650"
-                  accent="neutral"
+                  value={`₹${Number(performance?.unrealizedPnl ?? 0).toLocaleString("en-IN")}`}
+                  accent={Number(performance?.unrealizedPnl ?? 0) >= 0 ? "positive" : "negative"}
                 />
                 <MetricPill
                   label="Total trades copied"
-                  value="46"
+                  value={String(performance?.tradesCopied ?? 0)}
                   accent="neutral"
                 />
               </div>

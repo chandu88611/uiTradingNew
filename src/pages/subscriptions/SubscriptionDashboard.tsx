@@ -9,24 +9,54 @@ import {
   IndianRupee,
   Clock,
 } from "lucide-react";
+import { useGetMyCurrentSubscriptionQuery } from "../../services/profileSubscription.api";
+import { useListMyInvoicesQuery } from "../../services/billing.api";
 
 const SubscriptionDashboardPage: React.FC = () => {
-  // mock data
+  const { data: subData, isLoading: subLoading } =
+    useGetMyCurrentSubscriptionQuery();
+  const { data: invData } = useListMyInvoicesQuery({ page: 1, limit: 5 });
+
+  const subRoot: any =
+    (subData as any)?.data?.subscription ??
+    (subData as any)?.subscription ??
+    (subData as any)?.data ??
+    subData;
+  const sub: any = Array.isArray(subRoot) ? subRoot[0] : subRoot;
+  const plan = sub?.plan ?? null;
+
+  const invoices = ((invData as any)?.data ?? []).map((inv: any) => ({
+    id: String(inv.id),
+    amount: Math.round(Number(inv.amountCents ?? 0) / 100),
+    date: new Date(inv.createdAt).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    }),
+    status: inv.status === "paid" ? "Paid" : "Pending",
+  }));
+
   const subscription = {
-    status: "Active",
-    plan: "Profit Sharing (20%)",
-    nextSettlement: "01 Feb 2025",
-    startDate: "12 Jan 2025",
-    totalProfit: 42800,
-    userShare: 8560, // 20%
-    invoices: [
-      { id: "INV-001", amount: 6200, date: "01 Jan 2025", status: "Paid" },
-      { id: "INV-002", amount: 7800, date: "01 Dec 2024", status: "Paid" },
-    ],
-    settlements: [
-      { month: "January 2025", profit: 21400, userShare: 4280, status: "Settled" },
-      { month: "December 2024", profit: 26000, userShare: 5200, status: "Settled" },
-    ],
+    status: sub?.statusV2 ?? sub?.status ?? "—",
+    plan: plan?.name ?? "—",
+    nextSettlement: sub?.endDate
+      ? new Date(sub.endDate).toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "—",
+    startDate: sub?.startDate
+      ? new Date(sub.startDate).toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : "—",
+    totalProfit: 0,
+    userShare: 0,
+    invoices,
+    settlements: invoices,
   };
 
   return (
@@ -37,6 +67,12 @@ const SubscriptionDashboardPage: React.FC = () => {
         <p className="text-slate-400 text-sm mt-1">
           Track your subscription, settlements & profit-share performance.
         </p>
+        {subLoading && (
+          <p className="text-xs text-slate-400">Loading…</p>
+        )}
+        {!sub && !subLoading && (
+          <p className="text-xs text-slate-400">No active subscription</p>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -96,7 +132,10 @@ const SubscriptionDashboardPage: React.FC = () => {
       <div>
         <h2 className="text-lg font-semibold">Monthly Settlements</h2>
         <div className="mt-3 grid md:grid-cols-2 gap-4">
-          {subscription.settlements.map((s, i) => (
+          {subscription.settlements.length === 0 && (
+            <p className="text-sm text-slate-400">No settlements yet.</p>
+          )}
+          {subscription.settlements.map((s: any, i: number) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 8 }}
@@ -104,7 +143,7 @@ const SubscriptionDashboardPage: React.FC = () => {
               className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl"
             >
               <div className="flex justify-between">
-                <p className="font-medium">{s.month}</p>
+                <p className="font-medium">{s.month ?? s.date}</p>
                 <span className="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-2 py-0.5 rounded-lg">
                   {s.status}
                 </span>
@@ -114,13 +153,13 @@ const SubscriptionDashboardPage: React.FC = () => {
                 <p>
                   Profit:{" "}
                   <span className="text-emerald-400 font-semibold">
-                    ₹{s.profit.toLocaleString()}
+                    ₹{(s.profit ?? s.amount ?? 0).toLocaleString()}
                   </span>
                 </p>
                 <p>
                   Your Share:{" "}
                   <span className="text-blue-400 font-semibold">
-                    ₹{s.userShare.toLocaleString()}
+                    ₹{(s.userShare ?? s.amount ?? 0).toLocaleString()}
                   </span>
                 </p>
               </div>
@@ -147,7 +186,14 @@ const SubscriptionDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {subscription.invoices.map((inv) => (
+              {subscription.invoices.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-4 text-center text-slate-400">
+                    No invoices found.
+                  </td>
+                </tr>
+              )}
+              {subscription.invoices.map((inv: any) => (
                 <tr
                   key={inv.id}
                   className="border-b border-slate-800 hover:bg-slate-800/40"

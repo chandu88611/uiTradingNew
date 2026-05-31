@@ -74,6 +74,12 @@ export interface PublicPlansQuery {
   interval?: BillingInterval;
 }
 
+export interface CurrentSubscriptionQuery {
+  market?: string;
+  start?: number;
+  count?: number;
+}
+
 /**
  * ✅ IMPORTANT:
  * - If baseApi.baseUrl = https://backend.tradebro.io  -> keep "/admin"
@@ -105,12 +111,13 @@ export const userSubscriptionApi = baseApi.injectEndpoints({
     // USER: Current subscription
     // ==========================
     getMyCurrentSubscription: builder.query<
-      { message: string; data: UserSubscription | null },
-      void
+      { message: string; data?: any; subscription?: any },
+      CurrentSubscriptionQuery | void
     >({
-      query: () => ({
+      query: (params) => ({
         url: "/subscription/current",
         method: "GET",
+        params: params ?? undefined,
       }),
      
       providesTags: ["UserSubscription"],
@@ -139,7 +146,7 @@ export const userSubscriptionApi = baseApi.injectEndpoints({
       { cancelAtPeriodEnd?: boolean }
     >({
       query: (body) => ({
-        url: withAdmin("/subscription/cancel"),
+        url: "/subscription/cancel",
         method: "POST",
         body,
       }),
@@ -171,6 +178,46 @@ export const userSubscriptionApi = baseApi.injectEndpoints({
       }),
       providesTags: (_r, _e, id) => [{ type: "SubscriptionPlan", id }],
     }),
+
+    // ✅ PATCH /subscription/strategy-selections
+    saveStrategySelections: builder.mutation<
+      { data: any },
+      { strategySelections: Record<string, string[]> }
+    >({
+      query: (body) => ({
+        url: "/subscription/strategy-selections",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["UserSubscription"],
+    }),
+
+    // ✅ PATCH /subscription/webhook-settings
+    saveWebhookSettings: builder.mutation<
+      { message?: string; data: {
+        id: number;
+        subscriptionId?: number;
+        planId?: number;
+        isWebhookEnabled: boolean;
+        webhookToken: string | null;
+        defaultTradingAccountId?: number | null;
+        payloadDefaults?: Record<string, any>;
+      } },
+      {
+        subscriptionId?: number | string | null;
+        planId?: number | string | null;
+        isWebhookEnabled: boolean;
+        defaultTradingAccountId?: number | string | null;
+        payloadDefaults?: Record<string, any>;
+      }
+    >({
+      query: (body) => ({
+        url: "/subscription/webhook-settings",
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["UserSubscription"],
+    }),
   }),
   overrideExisting: false,
 });
@@ -181,4 +228,6 @@ export const {
   useCancelMySubscriptionMutation,
   useListActivePlansQuery,
   useGetPlanByIdQuery,
+  useSaveStrategySelectionsMutation,
+  useSaveWebhookSettingsMutation,
 } = userSubscriptionApi;

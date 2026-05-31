@@ -92,7 +92,7 @@ export function TradingTab({
             <button
               className={clsx(btn, btnPrimary)}
               onClick={() => {
-                toast.success("Saved (dummy)");
+                toast.success("Trading preferences saved locally");
                 setActiveMarket(null);
               }}
             >

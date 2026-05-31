@@ -27,7 +27,7 @@ import MarketStrategiesDrawer from "../common/MarketStrategiesDrawer";
 import MarketWebhookDrawer from "../common/MarketWebhookDrawer";
 import { useGetMyCurrentSubscriptionQuery } from "../../../services/profileSubscription.api";
 
-const UI_DEBUG_UNLOCK_ALL = true;
+const UI_DEBUG_UNLOCK_ALL = false;
 
 const INDIAN_TYPES: ApiTypeOption[] = [
   {

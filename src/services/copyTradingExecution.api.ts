@@ -204,9 +204,9 @@ export const copyTradingExecutionApi = baseApi
        */
       deleteCopyLink: builder.mutation<any, { mode: MarketCategory; strategyId: string }>({
         query: ({ mode, strategyId }) => ({
-          url: "/copy/links",
+          url: `/copy/links/${encodeURIComponent(strategyId)}`,
           method: "DELETE",
-          params: { mode, strategyId },
+          params: { mode },
         }),
         transformResponse: (res: any) => unwrapData<any>(res),
         invalidatesTags: ["CopyLinks"],

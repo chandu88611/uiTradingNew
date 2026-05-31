@@ -196,6 +196,16 @@ export const tradesApi = baseApi.injectEndpoints({
         ];
       },
     }),
+
+    // ✅ GET /trade/pnl?period=7d|30d|90d|all
+    getMyPnl: builder.query<any, { period?: string } | void>({
+      query: (params) => ({
+        url: "/trade/pnl",
+        method: "GET",
+        params: params ? { period: (params as any).period ?? "30d" } : undefined,
+      }),
+      providesTags: [{ type: "TradeHistory" as const, id: "PNL" }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -210,4 +220,5 @@ export const {
 
   // ✅ NEW (single hook)
   useCloseTradesMutation,
+  useGetMyPnlQuery,
 } = tradesApi;

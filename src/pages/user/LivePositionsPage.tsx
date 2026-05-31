@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import {
   TrendingUp,
   TrendingDown,
-  X,
   RefreshCcw,
   Wallet,
   Gauge,
-  Briefcase,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useListMyTradingAccountsQuery } from "../../services/tradingAccounts.api";
+import { useGetZebuPositionsQuery } from "../../services/zebu.api";
 
 type Position = {
   id: string;
@@ -21,68 +21,39 @@ type Position = {
   type: "LONG" | "SHORT";
 };
 
-const initialPositions: Position[] = [
-  {
-    id: "P1",
-    symbol: "BANKNIFTY24FEBFUT",
-    qty: 25,
-    avgPrice: 49200,
-    currentPrice: 49320,
-    pnl: 3000,
-    broker: "Zerodha",
-    type: "LONG",
-  },
-  {
-    id: "P2",
-    symbol: "NIFTY24FEBFUT",
-    qty: 50,
-    avgPrice: 22150,
-    currentPrice: 22110,
-    pnl: -2000,
-    broker: "Dhan",
-    type: "SHORT",
-  },
-  {
-    id: "P3",
-    symbol: "RELIANCE",
-    qty: 20,
-    avgPrice: 2630,
-    currentPrice: 2645,
-    pnl: 300,
-    broker: "Zebu",
-    type: "LONG",
-  },
-];
-
 const LivePositionsPage: React.FC = () => {
-  const [positions, setPositions] = useState(initialPositions);
+  const { data: accounts = [] } = useListMyTradingAccountsQuery();
+  const zebuAcc = (accounts as any[]).find(
+    (a) => String(a.broker ?? "").toUpperCase() === "ZEBU"
+  );
+  const { data: posData, isLoading, isFetching, refetch } =
+    useGetZebuPositionsQuery(
+      { tradingAccountId: Number(zebuAcc?.id ?? 0) },
+      { skip: !zebuAcc?.id, pollingInterval: 5000 }
+    );
 
-  // mock live updates every 5 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setPositions((prev) =>
-        prev.map((p) => {
-          const change = (Math.random() - 0.5) * 20;
-          const newPrice = Math.max(10, p.currentPrice + change);
-          const newPnl =
-            p.type === "LONG"
-              ? (newPrice - p.avgPrice) * p.qty
-              : (p.avgPrice - newPrice) * p.qty;
+  const positions: Position[] = useMemo(
+    () =>
+      ((posData as any)?.data ?? [])
+        .map((p: any) => ({
+          id: String(p.tsym ?? p.tradingSymbol ?? Math.random()),
+          symbol: String(p.tsym ?? p.tradingSymbol ?? ""),
+          qty: Number(p.netqty ?? p.quantity ?? 0),
+          avgPrice: Number(p.netavgprc ?? p.averagePrice ?? 0),
+          currentPrice: Number(p.lp ?? p.lastPrice ?? 0),
+          pnl: Number(p.urmtom ?? p.rpnl ?? p.pnl ?? 0),
+          broker: "ZEBU",
+          type:
+            Number(p.netqty ?? p.quantity ?? 0) >= 0 ? "LONG" : "SHORT",
+        }))
+        .filter((p: any) => p.symbol),
+    [posData]
+  );
 
-          return {
-            ...p,
-            currentPrice: newPrice,
-            pnl: Number(newPnl.toFixed(2)),
-          };
-        })
-      );
-    }, 5000);
+  const loading = isLoading || isFetching;
 
-    return () => clearInterval(timer);
-  }, []);
-
-  const closePosition = (id: string) => {
-    setPositions((prev) => prev.filter((p) => p.id !== id));
+  const refresh = () => {
+    if (zebuAcc?.id) refetch();
   };
 
   // Dashboard metrics
@@ -94,9 +65,22 @@ const LivePositionsPage: React.FC = () => {
     <div className="min-h-screen px-6 pt-16  md:pt-28 bg-slate-950 text-slate-100 p-6 space-y-8">
       
       {/* HEADER */}
-      <div>
-        <h1 className="text-2xl font-semibold">Live Open Positions</h1>
-        <p className="text-slate-400 text-sm mt-1">Monitoring your real-time trades.</p>
+      <div className="flex items-start justify-between flex-col sm:flex-row gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Live Open Positions</h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Monitoring your real-time trades.
+          </p>
+        </div>
+
+        <button
+          onClick={refresh}
+          disabled={loading || !zebuAcc?.id}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-xl text-sm"
+        >
+          <RefreshCcw size={16} className={loading ? "animate-spin" : ""} />
+          Refresh
+        </button>
       </div>
 
       {/* METRIC CARDS */}
@@ -168,12 +152,29 @@ const LivePositionsPage: React.FC = () => {
               <th className="p-3">LTP</th>
               <th className="p-3">Broker</th>
               <th className="p-3 text-right">P/L</th>
-              <th className="p-3 text-right"></th>
             </tr>
           </thead>
 
           <tbody>
-            {positions.map((p) => (
+            {loading && (
+              <tr>
+                <td colSpan={7} className="p-6 text-center text-slate-400">
+                  Loading positions…
+                </td>
+              </tr>
+            )}
+
+            {!loading && positions.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-6 text-center text-slate-500">
+                  No open positions. Connect a Zebu account to see live
+                  positions.
+                </td>
+              </tr>
+            )}
+
+            {!loading &&
+              positions.map((p) => (
               <tr
                 key={p.id}
                 className="border-b border-slate-800 hover:bg-slate-800/40"
@@ -204,16 +205,6 @@ const LivePositionsPage: React.FC = () => {
                   }`}
                 >
                   ₹{p.pnl.toFixed(2)}
-                </td>
-
-                {/* CLOSE BUTTON */}
-                <td className="p-3 text-right">
-                  <button
-                    onClick={() => closePosition(p.id)}
-                    className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-xs flex items-center gap-1"
-                  >
-                    <X size={14} /> Close
-                  </button>
                 </td>
               </tr>
             ))}

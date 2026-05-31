@@ -7,6 +7,7 @@ import { clsx } from "../utils";
 import { soft, btn, btnGhost, btnPrimary, input } from "../style";
 import { Toggle } from "../Toggle";
 import { StatusPill } from "../StatusPill";
+import { useSaveStrategySelectionsMutation } from "../../../../services/profileSubscription.api";
 
 export function StrategiesTab({
   summary,
@@ -26,6 +27,8 @@ export function StrategiesTab({
   selections: StrategySelections;
   setSelections: (s: StrategySelections) => void;
 }) {
+  const [saveStrategySelections, { isLoading: savingSelections }] =
+    useSaveStrategySelectionsMutation();
   const markets: Market[] = ["FOREX", "INDIA", "CRYPTO", "COPY"];
   const availableMarkets = markets.filter((m) => summary[m].hasPlan);
 
@@ -100,6 +103,14 @@ export function StrategiesTab({
   };
 
   const isLockedMarket = !summary[activeMarket].hasPlan;
+  const saveSelections = async () => {
+    try {
+      await saveStrategySelections({ strategySelections: selections }).unwrap();
+      toast.success("Strategy selections saved");
+    } catch (error: any) {
+      toast.error(error?.data?.message ?? "Failed to save strategy selections");
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -242,10 +253,10 @@ export function StrategiesTab({
           <button
             type="button"
             className={clsx(btn, btnPrimary)}
-            onClick={() => toast.success("Saved (dummy)")}
-            disabled={!selectedPlanId || isLockedMarket}
+            onClick={saveSelections}
+            disabled={!selectedPlanId || isLockedMarket || savingSelections}
           >
-            <Check size={16} /> Save
+            <Check size={16} /> {savingSelections ? "Saving..." : "Save"}
           </button>
         </div>
 

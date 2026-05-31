@@ -3,8 +3,6 @@ import ApiAccountsManager, { ApiAccountItem, ApiTypeOption } from "../ApiAccount
 import { toast } from "react-toastify";
 import { Copy } from "lucide-react";
 
-import CryptoStrategiesDrawer from "./components/CryptoStrategiesDrawer";
-import CryptoWebhookDrawer from "./components/CryptoWebhookDrawer";
 
 import { CryptoPlanInstance, CryptoPlanSignalSettings, CryptoStrategySelections } from "./crypto.types";
 
@@ -24,7 +22,7 @@ function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
 }
 
-const UI_DEBUG_UNLOCK_ALL = true;
+const UI_DEBUG_UNLOCK_ALL = false;
 
 const btn =
   "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition";

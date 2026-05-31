@@ -7,11 +7,13 @@ import {
   ForexCopyAccount,
   ForexCopyPlanInstance,
   ForexPlanSignalSettings,
+  ForexPlanStrategies,
   ForexSafetySettings,
   ForexStrategySelections,
 } from "./forex.types";
 
-import { dummyForexPlans, dummyForexPlanStrategies, dummyForexSafetyDefaults } from "./forex.dummy";
+import { useGetMyCurrentSubscriptionQuery } from "../../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../../services/tradingAccounts.api";
 
 import ForexCopyAccountsPanel from "./components/ForexCopyAccountsPanel";
 import ForexPlanBar from "./components/ForexPlanBar";
@@ -39,7 +41,56 @@ function ensureSignalDefaults(planId: string, map: ForexPlanSignalSettings): For
 }
 
 export default function CopyTradingForexTraderPage() {
-  const plans = useMemo(() => dummyForexPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const { data: taccounts = [] } = useListMyTradingAccountsQuery();
+
+  const subRoot: any =
+    (subData as any)?.data?.subscription ??
+    (subData as any)?.subscription ??
+    (subData as any)?.data ??
+    subData;
+  const sub: any = Array.isArray(subRoot) ? subRoot[0] : subRoot;
+  const planRaw: any = sub?.plan ?? null;
+
+  const plans = useMemo<ForexCopyPlanInstance[]>(() => {
+    if (!sub || !planRaw) return [];
+    const cat = String(planRaw.category ?? planRaw.market?.code ?? "").toUpperCase();
+    if (!cat.includes("FOREX")) return [];
+    return [
+      {
+        planId: String(sub.id),
+        planName: planRaw.name ?? "Plan #" + sub.planId,
+        tier: "PRO",
+        executionAllowed: !!sub.executionEnabled,
+        limits: {
+          maxConnectedAccounts: planRaw.maxConnectedAccounts ?? 0,
+          maxActiveStrategies: planRaw.maxActiveStrategies ?? 0,
+          maxDailyTrades: planRaw.maxDailyTrades ?? 0,
+          maxLotPerTrade: planRaw.maxLotPerTrade ? Number(planRaw.maxLotPerTrade) : 0,
+        },
+        webhook: {
+          endpointUrl: "",
+          secretMasked: "",
+        },
+      },
+    ];
+  }, [sub, planRaw]);
+
+  const strategyDefs = useMemo<ForexPlanStrategies>(() => {
+    if (!sub) return {};
+    const raw: any[] = planRaw?.metadata?.strategies ?? planRaw?.featureFlags?.strategies ?? [];
+    if (!Array.isArray(raw) || raw.length === 0) return {};
+    return {
+      [String(sub.id)]: raw.map((s: any, i: number) => ({
+        id: String(s.id ?? s.key ?? i),
+        name: String(s.name ?? s.title ?? "Strategy " + (i + 1)),
+        description: String(s.description ?? ""),
+        tags: Array.isArray(s.tags) ? s.tags.map(String) : [],
+        risk: (s.risk === "LOW" || s.risk === "HIGH" ? s.risk : "MEDIUM") as "LOW" | "MEDIUM" | "HIGH",
+      })),
+    };
+  }, [sub, planRaw]);
+
   const [selectedPlanId, setSelectedPlanId] = useState<string>(() => getLS("copy.fx.trader.selectedPlanId.v1", plans[0]?.planId ?? ""));
 
   const selectedPlan: ForexCopyPlanInstance | null = useMemo(
@@ -48,6 +99,10 @@ export default function CopyTradingForexTraderPage() {
   );
 
   useEffect(() => setLS("copy.fx.trader.selectedPlanId.v1", selectedPlanId), [selectedPlanId]);
+
+  useEffect(() => {
+    if (!selectedPlanId && plans[0]?.planId) setSelectedPlanId(plans[0].planId);
+  }, [plans, selectedPlanId]);
 
   // accounts (dummy, local)
   const [accounts, setAccounts] = useState<ForexCopyAccount[]>(() =>
@@ -95,7 +150,7 @@ export default function CopyTradingForexTraderPage() {
   }, [selectedPlan, selections]);
 
   // safety (per plan)
-  const [safety, setSafety] = useState<ForexSafetySettings>(() => getLS("copy.fx.trader.safety.v1", dummyForexSafetyDefaults));
+  const [safety, setSafety] = useState<ForexSafetySettings>(() => getLS("copy.fx.trader.safety.v1", {} as ForexSafetySettings));
   useEffect(() => setLS("copy.fx.trader.safety.v1", safety), [safety]);
 
   // drawers
@@ -119,6 +174,7 @@ export default function CopyTradingForexTraderPage() {
         <p className="text-sm text-slate-400 mt-1">
           Accounts are priority. Configure plan → webhook/strategies → safety controls.
         </p>
+        {subLoading && <p className="text-xs text-slate-500 mt-1">Loading your plan…</p>}
       </div>
 
       {/* ✅ ACCOUNTS FIRST (top priority) */}
@@ -157,7 +213,7 @@ export default function CopyTradingForexTraderPage() {
         open={openStrategies}
         onClose={() => setOpenStrategies(false)}
         plan={selectedPlan}
-        strategyDefs={dummyForexPlanStrategies}
+        strategyDefs={strategyDefs}
         planSignals={planSignals}
         setPlanSignals={setPlanSignals}
         selections={selections}

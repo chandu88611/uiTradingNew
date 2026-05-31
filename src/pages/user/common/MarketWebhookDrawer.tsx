@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, Download, X } from "lucide-react";
 import { toast } from "react-toastify";
+import { useSaveWebhookSettingsMutation } from "../../../services/profileSubscription.api";
 
 function clsx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -13,21 +14,6 @@ async function copyText(text: string) {
     toast.success("Copied");
   } catch {
     toast.error("Copy failed");
-  }
-}
-
-function genSecret() {
-  try {
-    const arr = new Uint8Array(16);
-    crypto.getRandomValues(arr);
-    return Array.from(arr)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  } catch {
-    return (
-      Math.random().toString(16).slice(2) +
-      Math.random().toString(16).slice(2)
-    );
   }
 }
 
@@ -66,7 +52,6 @@ type OrderType = "MARKET" | "LIMIT";
 
 type WebhookCfg = {
   webhookEnabled: boolean;
-  webhookSecret: string;
   webhookDefaultAccountId: string;
 
   tvMarket: MarketType;
@@ -283,6 +268,8 @@ export default function MarketWebhookDrawer({
 }) {
   const planId = String(plan?.id ?? plan?.planId ?? "").trim();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [saveWebhookSettings, { isLoading: savingWebhook }] =
+    useSaveWebhookSettingsMutation();
 
   const master = accounts.find((a) => a.isMaster);
 
@@ -300,7 +287,6 @@ export default function MarketWebhookDrawer({
 
     return {
       webhookEnabled: existing?.webhookEnabled ?? true,
-      webhookSecret: existing?.webhookSecret ?? "",
       webhookDefaultAccountId:
         existing?.webhookDefaultAccountId ?? fallbackId,
 
@@ -319,8 +305,14 @@ export default function MarketWebhookDrawer({
   const cfg = planId ? getCfg() : undefined;
 
   const webhookEnabled = !!cfg?.webhookEnabled;
-  const secret = String(cfg?.webhookSecret ?? "");
   const defaultAccountId = String(cfg?.webhookDefaultAccountId ?? fallbackId);
+  const webhookToken = useMemo(() => {
+    try {
+      return new URL(webhookUrl).searchParams.get("token") ?? "";
+    } catch {
+      return "";
+    }
+  }, [webhookUrl]);
 
   const selectedMarket = (cfg?.tvMarket ?? market) as MarketType;
   const action = (cfg?.tvAction ?? "BUY") as TradeAction;
@@ -342,11 +334,6 @@ export default function MarketWebhookDrawer({
     const next: WebhookCfg = {
       ...current,
     };
-
-    if (!next.webhookSecret) {
-      next.webhookSecret = genSecret();
-      changed = true;
-    }
 
     if (next.tvMarket !== market) {
       next.tvMarket = market;
@@ -414,9 +401,29 @@ export default function MarketWebhookDrawer({
     trailingStopLoss,
   ]);
 
-  const save = () => {
-    toast.success("Saved");
-    onClose();
+  const save = async () => {
+    if (!planId) return;
+    try {
+      await saveWebhookSettings({
+        planId,
+        isWebhookEnabled: webhookEnabled,
+        defaultTradingAccountId: defaultAccountId || null,
+        payloadDefaults: {
+          market: selectedMarket,
+          action,
+          executionMode,
+          orderType,
+          tradingStrength: toNumberOrDefault(tradingStrength, 0.8),
+          stopLossDistance: toNumberOrDefault(stopLossDistance, 7),
+          takeProfitDistance: toNumberOrDefault(takeProfitDistance, 10),
+          trailingStopLoss,
+        },
+      }).unwrap();
+      toast.success("Webhook settings saved");
+      onClose();
+    } catch (error: any) {
+      toast.error(error?.data?.message ?? "Webhook save failed");
+    }
   };
 
   return (
@@ -661,23 +668,23 @@ export default function MarketWebhookDrawer({
               )}
             >
               <div className="text-sm font-semibold text-slate-100">
-                Secret
+                Webhook token
               </div>
               <div className="text-xs text-slate-400 mt-1">
-                Backend validates this secret.
+                Backend validates the token embedded in the webhook URL.
               </div>
 
               <div className="mt-3 flex gap-2">
                 <input
                   className="w-full rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-100"
                   readOnly
-                  value={secret || ""}
+                  value={webhookToken || ""}
                 />
 
                 <button
                   type="button"
                   className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 text-sm text-slate-200"
-                  onClick={() => copyText(secret || "")}
+                  onClick={() => copyText(webhookToken || "")}
                 >
                   <Copy size={16} />
                 </button>
@@ -765,9 +772,10 @@ export default function MarketWebhookDrawer({
             <button
               type="button"
               onClick={save}
+              disabled={savingWebhook}
               className="w-full rounded-2xl border border-emerald-500/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20 px-4 py-3 text-sm font-semibold"
             >
-              Save
+              {savingWebhook ? "Saving..." : "Save"}
             </button>
           </div>
         )}

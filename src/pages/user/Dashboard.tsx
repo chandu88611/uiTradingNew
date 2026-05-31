@@ -1,8 +1,7 @@
 // src/pages/user/BrokerDashboardPage.tsx
 
-import React, { useState } from "react";
+import React, { useMemo } from "react";
 import {
-  Cable,
   CheckCircle,
   XCircle,
   RefreshCw,
@@ -12,6 +11,7 @@ import {
   Settings,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { useListMyTradingAccountsQuery } from "../../services/tradingAccounts.api";
 
 type BrokerStatus = "connected" | "expired" | "disconnected";
 
@@ -24,29 +24,11 @@ type Broker = {
   accountId?: string;
 };
 
-const initialBrokers: Broker[] = [
-  {
-    id: "zerodha",
-    name: "Zerodha",
-    logo: "/brokers/zerodha.png",
-    status: "connected",
-    lastUpdated: "10 min ago",
-    accountId: "ZU10923",
-  },
-  {
-    id: "zebu",
-    name: "Zebu",
-    logo: "/brokers/zebu.png",
-    status: "expired",
-    lastUpdated: "2 hours ago",
-  },
-  {
-    id: "dhan",
-    name: "Dhan",
-    logo: "/brokers/dhan.png",
-    status: "disconnected",
-    lastUpdated: "-",
-  },
+/** Static catalogue of supported brokers (names/logos are config, not mock data). */
+const BROKER_CATALOG: Array<{ id: string; name: string; logo: string; codes: string[] }> = [
+  { id: "zerodha", name: "Zerodha", logo: "/brokers/zerodha.png", codes: ["KITE", "ZERODHA"] },
+  { id: "zebu",    name: "Zebu",    logo: "/brokers/zebu.png",    codes: ["ZEBU", "SHOONYA"] },
+  { id: "dhan",    name: "Dhan",    logo: "/brokers/dhan.png",    codes: ["DHAN"] },
 ];
 
 const statusColors = {
@@ -55,8 +37,42 @@ const statusColors = {
   disconnected: "bg-red-500/20 text-red-400 border-red-500/40",
 };
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "-";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "-";
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 const BrokerDashboardPage: React.FC = () => {
-  const [brokers, setBrokers] = useState(initialBrokers);
+  const { data: accounts = [], isLoading } = useListMyTradingAccountsQuery();
+
+  // Derive each catalogue broker's real connection status from the user's accounts.
+  const brokers: Broker[] = useMemo(() => {
+    return BROKER_CATALOG.map((cat) => {
+      const acc = (accounts as any[]).find((a: any) =>
+        cat.codes.includes(String(a.broker ?? a.brokerCode ?? "").toUpperCase())
+      );
+      const status: BrokerStatus = acc
+        ? acc.status === "verified"
+          ? "connected"
+          : "expired"
+        : "disconnected";
+      return {
+        id: cat.id,
+        name: cat.name,
+        logo: cat.logo,
+        status,
+        lastUpdated: timeAgo(acc?.updatedAt ?? acc?.lastVerifiedAt),
+        accountId: acc?.externalAccountId ?? acc?.accountId ?? undefined,
+      };
+    });
+  }, [accounts]);
 
   const handleConnect = (id: string) => {
     window.location.href = `/user/brokers/connect/${id}`;
@@ -67,11 +83,8 @@ const BrokerDashboardPage: React.FC = () => {
   };
 
   const handleDisconnect = (id: string) => {
-    setBrokers((prev) =>
-      prev.map((b) =>
-        b.id === id ? { ...b, status: "disconnected", accountId: undefined } : b
-      )
-    );
+    // Disconnect is managed on the broker's manage page (real account mutation).
+    window.location.href = `/user/brokers/manage/${id}`;
   };
 
   const handleManage = (id: string) => {
@@ -88,6 +101,10 @@ const BrokerDashboardPage: React.FC = () => {
           Connect your trading broker accounts to enable automated & copy trading.
         </p>
       </div>
+
+      {isLoading && (
+        <p className="text-sm text-slate-400">Loading broker connections…</p>
+      )}
 
       {/* Broker Grid */}
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">

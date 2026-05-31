@@ -93,6 +93,28 @@ export const billingApi = baseApi.injectEndpoints({
       }),
     //   invalidatesTags: [{ type: "CurrentSubscription" as const, id: "ME" }],
     }),
+
+    // ✅ GET /billing/invoices — paginated invoice history for the logged-in user
+    listMyInvoices: builder.query<
+      { data: any[]; total?: number; page?: number; limit?: number },
+      { page?: number; limit?: number } | void
+    >({
+      query: (params) => ({
+        url: "billing/invoices",
+        method: "GET",
+        params: params ? { page: (params as any).page ?? 1, limit: (params as any).limit ?? 20 } : undefined,
+      }),
+      transformResponse: (res: any) => {
+        const raw = res?.data ?? res;
+        const items = raw?.data ?? raw?.items ?? raw?.invoices ?? (Array.isArray(raw) ? raw : []);
+        return {
+          data: Array.isArray(items) ? items : [],
+          total: raw?.total ?? raw?.count,
+          page: raw?.page ?? 1,
+          limit: raw?.limit ?? 20,
+        };
+      },
+    }),
   }),
 });
 
@@ -101,4 +123,5 @@ export const {
   useVerifySubscriptionPaymentMutation,
   useGetCurrentSubscriptionBillingQuery,
   useCancelSubscriptionBillingMutation,
+  useListMyInvoicesQuery,
 } = billingApi;

@@ -28,12 +28,11 @@ import {
   type ForexAccountRow,
 } from "../../../services/forexTraderUserDetails.api";
 
-import ForexStrategiesDrawer from "./components/ForexStrategiesDrawer";
-import ForexWebhookDrawer from "./components/ForexWebhookDrawer";
 import ForexMT5SetupDrawer from "./components/ForexMT5SetupDrawer";
 import SlideOver from "./components/SlideOver";
 
-import { dummyForexPlans, dummyForexPlanStrategies } from "./forex.dummy";
+// NOTE: forex plans/strategies now come from the user's real subscription.
+// (Old dummy import removed; the only remaining reference was dead/commented code.)
 import {
   ForexPlanInstance,
   ForexPlanSignalSettings,
@@ -478,8 +477,10 @@ export default function ForexAccountsPage() {
       if (!uniq.has(p.planId)) uniq.set(p.planId, p);
     });
 
-    const out = Array.from(uniq.values());
-    return out.length ? out : (dummyForexPlans as any);
+    // Return only real forex-subscription plans. When the user has none,
+    // return [] so the page shows its proper "no plan / locked" state
+    // instead of fake plans.
+    return Array.from(uniq.values());
   }, [forexActiveSubs]);
 
   const selectedPlan: ForexPlanInstance | null = useMemo(
@@ -1212,28 +1213,6 @@ export default function ForexAccountsPage() {
           ) : null}
         </div>
       </SlideOver>
-
-      {/* <ForexWebhookDrawer
-        open={openWebhook}
-        onClose={() => setOpenWebhook(false)}
-        plan={selectedPlan}
-        accounts={accountsLite}
-        planSignals={planSignals}
-        setPlanSignals={setPlanSignals}
-        webhookUrl={FOREX_TV_WEBHOOK_URL}
-      />
-
-      <ForexStrategiesDrawer
-        open={openStrategies}
-        onClose={() => setOpenStrategies(false)}
-        plan={selectedPlan}
-        strategyDefs={dummyForexPlanStrategies}
-        planSignals={planSignals}
-        setPlanSignals={setPlanSignals}
-        selections={strategySelections}
-        setSelections={setStrategySelections}
-        uiDebugUnlockAll={UI_DEBUG_UNLOCK_ALL}
-      /> */}
 
       <MarketWebhookDrawer
         open={openWebhook}

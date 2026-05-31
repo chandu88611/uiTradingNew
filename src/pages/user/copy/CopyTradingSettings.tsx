@@ -20,13 +20,8 @@ import {
   GlobalRiskSettings,
 } from "./settingsHub.types";
 
-import {
-  dummyPlans,
-  dummyPlanSignals,
-  dummySelections,
-  dummyUsage,
-  dummyGlobalRisk,
-} from "./settingsHub.dummy";
+import { useGetMyCurrentSubscriptionQuery } from "../../../services/profileSubscription.api";
+import { useListMyTradingAccountsQuery } from "../../../services/tradingAccounts.api";
 
 import { clsx, getLS, setLS } from "./ui";
 
@@ -110,8 +105,64 @@ function Dot({ ok }: { ok: boolean }) {
 export default function SettingsHubPage() {
   const navigate = useNavigate();
 
-  // dummy now (later from API)
-  const plans: PlanInstance[] = useMemo(() => dummyPlans, []);
+  const { data: subData, isLoading: subLoading } = useGetMyCurrentSubscriptionQuery();
+  const { data: taccounts = [] } = useListMyTradingAccountsQuery();
+
+  const subRoot: any =
+    (subData as any)?.data?.subscription ??
+    (subData as any)?.subscription ??
+    (subData as any)?.data ??
+    subData;
+  const sub: any = Array.isArray(subRoot) ? subRoot[0] : subRoot;
+  const planRaw: any = sub?.plan ?? null;
+
+  const plans: PlanInstance[] = useMemo(() => {
+    if (!sub || !planRaw) return [];
+    const cat = String(planRaw.category ?? planRaw.market?.code ?? "FOREX").toUpperCase();
+    const market: Market = cat.includes("FOREX")
+      ? "FOREX"
+      : cat.includes("CRYPTO")
+      ? "CRYPTO"
+      : cat.includes("COPY")
+      ? "COPY"
+      : "INDIA";
+    return [
+      {
+        planId: String(sub.id),
+        market,
+        planName: planRaw.name ?? "Plan #" + sub.planId,
+        executionAllowed: !!sub.executionEnabled,
+        expiresAt: sub.endDate ?? null,
+        limits: {
+          maxConnectedAccounts: planRaw.maxConnectedAccounts ?? 0,
+          maxActiveStrategies: planRaw.maxActiveStrategies ?? 0,
+          maxDailyTrades: planRaw.maxDailyTrades ?? undefined,
+          maxLotPerTrade: planRaw.maxLotPerTrade ? Number(planRaw.maxLotPerTrade) : undefined,
+        },
+        strategiesAvailable: true,
+        webhookAvailable: true,
+      },
+    ];
+  }, [sub, planRaw]);
+
+  const usageInit = useMemo<UsageByMarket>(() => {
+    const cnt = (codes: string[]) =>
+      (taccounts as any[]).filter((a: any) => codes.includes(String(a.broker ?? "").toUpperCase())).length;
+    return {
+      FOREX: { accountsUsed: cnt(["MT5", "CT", "CTRADER"]), strategiesEnabledCount: null, tradesToday: null },
+      INDIA: {
+        accountsUsed: cnt(["ZEBU", "DHAN", "KITE", "ANGEL", "UPSTOX", "FYERS", "SHOONYA", "ALICEBLUE"]),
+        strategiesEnabledCount: null,
+        tradesToday: null,
+      },
+      CRYPTO: {
+        accountsUsed: cnt(["DELTA", "COINDCX", "BINANCE_FUTURE"]),
+        strategiesEnabledCount: null,
+        tradesToday: null,
+      },
+      COPY: { accountsUsed: 0, strategiesEnabledCount: null, tradesToday: null },
+    };
+  }, [taccounts]);
 
   const plansByMarket = useMemo(() => {
     const map: Record<Market, PlanInstance[]> = { FOREX: [], INDIA: [], CRYPTO: [], COPY: [] };
@@ -124,19 +175,32 @@ export default function SettingsHubPage() {
   }, [plansByMarket]);
 
   const [selections, setSelections] = useState<MarketPlanSelection>(() =>
-    getLS<MarketPlanSelection>(LS_KEYS.selections, dummySelections)
+    getLS<MarketPlanSelection>(LS_KEYS.selections, {} as MarketPlanSelection)
   );
 
   const [planSignals, setPlanSignals] = useState<PlanSignalSettings>(() =>
-    getLS<PlanSignalSettings>(LS_KEYS.signals, dummyPlanSignals)
+    getLS<PlanSignalSettings>(LS_KEYS.signals, {})
   );
 
-  const [usageByMarket] = useState<UsageByMarket>(() =>
-    getLS<UsageByMarket>(LS_KEYS.usage, dummyUsage)
+  const [usageByMarket, setUsageByMarket] = useState<UsageByMarket>(() =>
+    getLS<UsageByMarket>(LS_KEYS.usage, {} as UsageByMarket)
   );
+  useEffect(() => setUsageByMarket(usageInit), [usageInit]);
 
   const [globalRisk, setGlobalRisk] = useState<GlobalRiskSettings>(() =>
-    getLS<GlobalRiskSettings>(LS_KEYS.global, dummyGlobalRisk)
+    getLS<GlobalRiskSettings>(LS_KEYS.global, {
+      paused: false,
+      pauseUntil: null,
+      maxLossAmount: null,
+      maxLossPercent: null,
+      minGainAmount: null,
+      minGainPercent: null,
+      maxTradesPerDay: null,
+      stopAfterConsecutiveLosses: null,
+      blockOutsideHours: false,
+      tradeFromHHMM: "09:15",
+      tradeToHHMM: "15:30",
+    } as GlobalRiskSettings)
   );
 
   // persist
@@ -209,6 +273,9 @@ export default function SettingsHubPage() {
           <p className="text-sm text-slate-400 mt-1">
             Simple hub to open the right module. Full setup happens inside each market page.
           </p>
+          {subLoading && (
+            <p className="text-xs text-slate-500 mt-1">Loading your plan…</p>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">

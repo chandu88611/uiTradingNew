@@ -266,7 +266,7 @@ const UserDashboard: React.FC = () => {
     isError,
     error,
     refetch,
-  } = useGetUserDashboardQuery();
+  } = useGetUserDashboardQuery(undefined, { pollingInterval: 5000 });
 
   const [createCheckout, { isLoading: isCreatingCheckout }] =
     useCreateSubscriptionCheckoutMutation();

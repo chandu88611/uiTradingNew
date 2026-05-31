@@ -109,7 +109,7 @@ export const userProtectedRoutes: AppRoute[] = [
   { path: "/profile", element: UserProfile },
   { path: "/referral-dashboard", element: ReferralDashboard },
 
-  { path: "/user/use-strategy", element: StrategyConfigure },
+  { path: "/user/use-strategy/:id", element: StrategyConfigure },
 
   // broker flow
   { path: "/user/brokers", element: UserBrokers },

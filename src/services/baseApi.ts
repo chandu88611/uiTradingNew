@@ -34,7 +34,17 @@ export const baseApi = createApi({
     'TradeHistory',
     "FollowerTradingAccount",
     "StrategyInstance",
-    "Strategy"
+    "Strategy",
+    "CopyFollows",
+    "CopyFollowers",
+    "CopyTradingRequests",
+    "TradeAlerts",
+    "AlertSnapshots",
+    "AdminAlertSnapshots",
+    "IndiaToken",
+    "CopySymbols",
+    "CopyStrategies",
+    "CopyLinks",
   ],
   endpoints: () => ({}),
 });

@@ -63,6 +63,12 @@ type WebhookCfg = {
   tvStopLossDistance: string;
   tvTakeProfitDistance: string;
   tvTrailingStopLoss: boolean;
+
+  // Indian market specific fields
+  tvIndianInstrumentType?: string;
+  tvIndianProduct?: string;
+  tvIndianOptionType?: string;
+  tvIndianStrike?: string;
 };
 
 /* ===== UI ===== */
@@ -299,6 +305,11 @@ export default function MarketWebhookDrawer({
       tvStopLossDistance: existing?.tvStopLossDistance ?? "7",
       tvTakeProfitDistance: existing?.tvTakeProfitDistance ?? "10",
       tvTrailingStopLoss: existing?.tvTrailingStopLoss ?? true,
+
+      tvIndianInstrumentType: existing?.tvIndianInstrumentType ?? "EQUITY",
+      tvIndianProduct: existing?.tvIndianProduct ?? "INTRADAY",
+      tvIndianOptionType: existing?.tvIndianOptionType ?? "CE",
+      tvIndianStrike: existing?.tvIndianStrike ?? "",
     };
   };
 
@@ -323,6 +334,11 @@ export default function MarketWebhookDrawer({
   const stopLossDistance = String(cfg?.tvStopLossDistance ?? "7");
   const takeProfitDistance = String(cfg?.tvTakeProfitDistance ?? "10");
   const trailingStopLoss = !!cfg?.tvTrailingStopLoss;
+
+  const indianInstrumentType = String(cfg?.tvIndianInstrumentType ?? "EQUITY");
+  const indianProduct = String(cfg?.tvIndianProduct ?? "INTRADAY");
+  const indianOptionType = String(cfg?.tvIndianOptionType ?? "CE");
+  const indianStrike = String(cfg?.tvIndianStrike ?? "");
 
   useEffect(() => {
     if (!planId) return;
@@ -369,7 +385,8 @@ export default function MarketWebhookDrawer({
     const stopLossDistanceNum = toNumberOrDefault(stopLossDistance, 7);
     const takeProfitDistanceNum = toNumberOrDefault(takeProfitDistance, 10);
 
-    return `{
+    // Base fields common to all markets
+    const baseTemplate = `{
   "market": "${selectedMarket}",
   "ticker": "{{ticker}}",
   "exchange": "{{exchange}}",
@@ -388,7 +405,27 @@ export default function MarketWebhookDrawer({
   "tradingStrength": ${tradingStrengthNum},
   "stopLossDistance": ${stopLossDistanceNum},
   "takeProfitDistance": ${takeProfitDistanceNum},
-  "trailingStopLoss": ${trailingStopLoss}
+  "trailingStopLoss": ${trailingStopLoss}`;
+
+    // Add Indian market specific fields
+    if (selectedMarket === "INDIAN") {
+      const strikeVal = indianStrike ? Number(indianStrike) : null;
+      const optTypeVal = indianInstrumentType === "OPTIONS" ? `"${indianOptionType}"` : "null";
+      const strikeFieldVal = indianInstrumentType === "OPTIONS" ? strikeVal : "null";
+      const expiryVal = indianInstrumentType === "FUTURES" || indianInstrumentType === "OPTIONS" ? `"{{expiry}}"` : "null";
+
+      return `${baseTemplate},
+  "instrumentType": "${indianInstrumentType}",
+  "product": "${indianProduct}",
+  "underlying": "{{ticker}}",
+  "expiry": ${expiryVal},
+  "optionType": ${optTypeVal},
+  "strike": ${strikeFieldVal},
+  "tradingSymbol": "{{tradingSymbol}}"
+}`;
+    }
+
+    return `${baseTemplate}
 }`;
   }, [
     selectedMarket,
@@ -399,6 +436,10 @@ export default function MarketWebhookDrawer({
     stopLossDistance,
     takeProfitDistance,
     trailingStopLoss,
+    indianInstrumentType,
+    indianProduct,
+    indianOptionType,
+    indianStrike,
   ]);
 
   const save = async () => {
@@ -594,6 +635,95 @@ export default function MarketWebhookDrawer({
             value={trailingStopLoss}
             onChange={(v) => patchCfg({ tvTrailingStopLoss: v })}
           />
+
+          {selectedMarket === "INDIAN" && (
+            <>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-sm font-semibold text-slate-100">
+                  Instrument Type
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  EQUITY, FUTURES, or OPTIONS
+                </div>
+
+                <select
+                  className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none"
+                  value={indianInstrumentType}
+                  onChange={(e) =>
+                    patchCfg({ tvIndianInstrumentType: e.target.value })
+                  }
+                >
+                  <option value="EQUITY">EQUITY</option>
+                  <option value="FUTURES">FUTURES</option>
+                  <option value="OPTIONS">OPTIONS</option>
+                </select>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="text-sm font-semibold text-slate-100">
+                  Product Type
+                </div>
+                <div className="text-xs text-slate-400 mt-1">
+                  INTRADAY, DELIVERY, or MARGIN
+                </div>
+
+                <select
+                  className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none"
+                  value={indianProduct}
+                  onChange={(e) =>
+                    patchCfg({ tvIndianProduct: e.target.value })
+                  }
+                >
+                  <option value="INTRADAY">INTRADAY</option>
+                  <option value="DELIVERY">DELIVERY</option>
+                  <option value="MARGIN">MARGIN</option>
+                </select>
+              </div>
+
+              {indianInstrumentType === "OPTIONS" && (
+                <>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-sm font-semibold text-slate-100">
+                      Option Type
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      CE (Call) or PE (Put)
+                    </div>
+
+                    <select
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none"
+                      value={indianOptionType}
+                      onChange={(e) =>
+                        patchCfg({ tvIndianOptionType: e.target.value })
+                      }
+                    >
+                      <option value="CE">CE (Call)</option>
+                      <option value="PE">PE (Put)</option>
+                    </select>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="text-sm font-semibold text-slate-100">
+                      Strike Price
+                    </div>
+                    <div className="text-xs text-slate-400 mt-1">
+                      Example: 25000 for NIFTY
+                    </div>
+
+                    <input
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2.5 text-sm text-slate-100 outline-none"
+                      value={indianStrike}
+                      onChange={(e) =>
+                        patchCfg({ tvIndianStrike: e.target.value })
+                      }
+                      placeholder="25000"
+                      inputMode="decimal"
+                    />
+                  </div>
+                </>
+              )}
+            </>
+          )}
 
           <div className="md:col-span-2 rounded-2xl border border-white/10 bg-black/20 overflow-hidden">
             <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3">

@@ -1,11 +1,18 @@
 import React, { useMemo, useState } from "react";
 import { toast } from "react-toastify";
+import { Wallet } from "lucide-react";
 
 import { useGetUserDashboardQuery } from "../../services/userDashboard.api";
 import {
   useCreateSubscriptionCheckoutMutation,
   useVerifySubscriptionPaymentMutation,
 } from "../../services/billing.api";
+import {
+  useGetZebuFundsQuery,
+  useGetDhanFundsQuery,
+  useGetMt5FundsQuery,
+  useGetCtraderFundsQuery,
+} from "../../services/zebu.api";
 
 declare global {
   interface Window {
@@ -254,6 +261,67 @@ const StatCard: React.FC<StatCardProps> = ({
       {subtext ? (
         <div className="mt-2 text-xs text-slate-400">{subtext}</div>
       ) : null}
+    </div>
+  );
+};
+
+// Account Funds Display Component
+const AccountFunds: React.FC<{ account: any }> = ({ account }) => {
+  const brokerCode = String(account.broker?.code ?? "").toUpperCase();
+  const isCtrader = brokerCode === "CT" || brokerCode === "CTRADER";
+
+  // Use the appropriate funds hook based on broker
+  const zebuQuery = useGetZebuFundsQuery(
+    { tradingAccountId: account.id },
+    { skip: brokerCode !== "ZEBU" }
+  );
+  const dhanQuery = useGetDhanFundsQuery(
+    { tradingAccountId: account.id },
+    { skip: brokerCode !== "DHAN" }
+  );
+  const mt5Query = useGetMt5FundsQuery(
+    { tradingAccountId: account.id },
+    { skip: brokerCode !== "MT5" }
+  );
+  const ctraderQuery = useGetCtraderFundsQuery(
+    { tradingAccountId: account.id },
+    { skip: !isCtrader }
+  );
+
+  const query =
+    brokerCode === "DHAN"
+      ? dhanQuery
+      : brokerCode === "MT5"
+        ? mt5Query
+        : isCtrader
+          ? ctraderQuery
+          : zebuQuery;
+
+  const funds = query.data;
+  const isLoading = query.isLoading || query.isFetching;
+
+  return (
+    <div className="mt-4">
+      <p className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+        <Wallet size={12} />
+        Account Funds
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-slate-900/80 p-3">
+          <p className="text-[11px] text-slate-400">Available Cash</p>
+          <p className="mt-1 text-sm font-semibold text-emerald-400">
+            {isLoading ? "…" : formatCurrency(funds?.availableCash ?? 0)}
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-slate-900/80 p-3">
+          <p className="text-[11px] text-slate-400">Margin Used</p>
+          <p className="mt-1 text-sm font-semibold text-amber-400">
+            {isLoading ? "…" : formatCurrency(funds?.marginUsed ?? 0)}
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
@@ -1070,6 +1138,8 @@ const UserDashboard: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                <AccountFunds account={account} />
 
                 {account.subscription?.planName ? (
                   <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2 text-[11px] text-slate-300">
